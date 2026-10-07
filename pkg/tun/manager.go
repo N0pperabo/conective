@@ -5,6 +5,7 @@ package tun
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
 	"fmt"
 	"net"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -301,65 +303,163 @@ func CleanupStaleWintunAdapters() {
 		}
 	}
 
-	// 2. Also inspect pnputil output for any devices with FreeNode description
-	cmd := silentCmd("pnputil", "/enum-devices", "/class", "Net")
-	out, err := cmd.Output()
-	if err == nil {
-		scanner := bufio.NewScanner(strings.NewReader(string(out)))
-		var currentInstanceID string
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if strings.HasPrefix(line, "Instance ID:") {
-				parts := strings.SplitN(line, ":", 2)
-				if len(parts) == 2 {
-					currentInstanceID = strings.TrimSpace(parts[1])
-				}
-			} else if strings.HasPrefix(line, "Device Description:") {
-				parts := strings.SplitN(line, ":", 2)
-				if len(parts) == 2 {
-					descLower := strings.ToLower(strings.TrimSpace(parts[1]))
-					if strings.Contains(descLower, "freenode") && currentInstanceID != "" {
-						idUpper := strings.ToUpper(currentInstanceID)
-						if !removed[idUpper] {
-							delCmd := silentCmd("pnputil", "/remove-device", currentInstanceID)
-							_ = delCmd.Run()
-							removed[idUpper] = true
+	// 2. Also inspect pnputil output for any devices with FreeNode or stale descriptions
+	for _, flag := range []string{"", "/disconnected"} {
+		var args []string
+		if flag != "" {
+			args = []string{"/enum-devices", "/class", "Net", flag}
+		} else {
+			args = []string{"/enum-devices", "/class", "Net"}
+		}
+		cmd := silentCmd("pnputil", args...)
+		out, err := cmd.Output()
+		if err == nil {
+			scanner := bufio.NewScanner(strings.NewReader(string(out)))
+			var currentInstanceID string
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if strings.HasPrefix(line, "Instance ID:") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 {
+						currentInstanceID = strings.TrimSpace(parts[1])
+					}
+				} else if strings.HasPrefix(line, "Device Description:") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 {
+						descLower := strings.ToLower(strings.TrimSpace(parts[1]))
+						if strings.Contains(descLower, "freenode") && currentInstanceID != "" {
+							idUpper := strings.ToUpper(currentInstanceID)
+							if !removed[idUpper] {
+								delCmd := silentCmd("pnputil", "/remove-device", currentInstanceID)
+								_ = delCmd.Run()
+								removed[idUpper] = true
+							}
 						}
 					}
+					currentInstanceID = ""
 				}
-				currentInstanceID = ""
 			}
 		}
 	}
 }
 
-// ResetOrRemoveAdapter forcefully removes a stuck or corrupted adapter by name using pnputil
-// so that Windows PnP cleans it up and Wintun can recreate it cleanly.
+// DeterministicWintunGUID calculates the exact deterministic GUID used by Wintun / Xray-core
+// from the cosmetic adapter name (MD5 hash cast to windows.GUID).
+func DeterministicWintunGUID(adapterName string) string {
+	id := md5.Sum([]byte(adapterName))
+	guid := (*windows.GUID)(unsafe.Pointer(&id[0]))
+	return fmt.Sprintf("{%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}",
+		guid.Data1, guid.Data2, guid.Data3,
+		guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+		guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7])
+}
+
+// FindSWDWintunInstances scans HKLM\SYSTEM\CurrentControlSet\Enum\SWD\Wintun for device nodes
+// corresponding to ConectiveTUN / Xray Tunnel or matching the calculated adapter GUID.
+func FindSWDWintunInstances(adapterName string) []string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Enum\SWD\Wintun`, registry.READ)
+	if err != nil {
+		return nil
+	}
+	defer k.Close()
+
+	subkeys, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil
+	}
+
+	targetGUID := DeterministicWintunGUID(adapterName)
+	targetUpper := strings.ToUpper(strings.TrimSpace(targetGUID))
+
+	var ids []string
+	for _, sub := range subkeys {
+		subUpper := strings.ToUpper(strings.TrimSpace(sub))
+		isTarget := false
+
+		if subUpper == targetUpper {
+			isTarget = true
+		}
+
+		devKey, err := registry.OpenKey(k, sub, registry.READ)
+		if err == nil {
+			desc, _, _ := devKey.GetStringValue("DeviceDesc")
+			fname, _, _ := devKey.GetStringValue("FriendlyName")
+			devKey.Close()
+
+			descLower := strings.ToLower(desc)
+			fnameLower := strings.ToLower(fname)
+			if strings.Contains(descLower, "xray tunnel") ||
+				strings.Contains(descLower, "conective") ||
+				strings.Contains(descLower, "freenode") ||
+				strings.Contains(fnameLower, "xray tunnel") ||
+				strings.Contains(fnameLower, "conective") ||
+				strings.Contains(fnameLower, "freenode") {
+				isTarget = true
+			}
+		}
+
+		if isTarget {
+			ids = append(ids, fmt.Sprintf(`SWD\Wintun\%s`, sub))
+		}
+	}
+	return ids
+}
+
+// ResetOrRemoveAdapter forcefully removes a stuck, disconnected or phantom Wintun adapter
+// by target instance ID and Enum\SWD\Wintun registry so that Windows PnP cleans it up
+// completely and Wintun can recreate it without ERROR_FILE_EXISTS ("The file exists").
 func ResetOrRemoveAdapter(adapterName string) error {
 	if !IsAdmin() {
 		return fmt.Errorf("resetting adapter requires administrator privileges")
 	}
 
+	removed := make(map[string]bool)
+
+	// 1. Target the exact deterministic SWD instance ID for this adapter name
+	detID := fmt.Sprintf(`SWD\Wintun\%s`, DeterministicWintunGUID(adapterName))
+	_ = silentCmd("pnputil", "/remove-device", detID).Run()
+	removed[strings.ToUpper(detID)] = true
+
+	// 2. Remove all matching instances from HKLM\SYSTEM\CurrentControlSet\Enum\SWD\Wintun
+	for _, id := range FindSWDWintunInstances(adapterName) {
+		idUpper := strings.ToUpper(strings.TrimSpace(id))
+		if idUpper != "" && !removed[idUpper] {
+			_ = silentCmd("pnputil", "/remove-device", id).Run()
+			removed[idUpper] = true
+		}
+	}
+
+	// 3. Remove by looking up Connection registry if active
 	instanceID, err := FindAdapterInstanceID(adapterName)
 	if err == nil && instanceID != "" {
-		delCmd := silentCmd("pnputil", "/remove-device", instanceID)
-		_ = delCmd.Run()
-		time.Sleep(500 * time.Millisecond)
-		return nil
-	}
-
-	// Fallback: search pnputil for Wintun device matching Xray/Conective
-	cmd := silentCmd("pnputil", "/enum-devices", "/class", "Net")
-	out, err := cmd.Output()
-	if err == nil {
-		ids := ParseWintunDevices(string(out))
-		for _, id := range ids {
-			delCmd := silentCmd("pnputil", "/remove-device", id)
-			_ = delCmd.Run()
+		idUpper := strings.ToUpper(strings.TrimSpace(instanceID))
+		if !removed[idUpper] {
+			_ = silentCmd("pnputil", "/remove-device", instanceID).Run()
+			removed[idUpper] = true
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
 
+	// 4. Enumerate both active and disconnected Net devices via pnputil (/disconnected flag is required!)
+	for _, flag := range []string{"", "/disconnected"} {
+		var args []string
+		if flag != "" {
+			args = []string{"/enum-devices", "/class", "Net", flag}
+		} else {
+			args = []string{"/enum-devices", "/class", "Net"}
+		}
+		cmd := silentCmd("pnputil", args...)
+		if out, err := cmd.Output(); err == nil {
+			for _, id := range ParseWintunDevices(string(out)) {
+				idUpper := strings.ToUpper(strings.TrimSpace(id))
+				if idUpper != "" && !removed[idUpper] {
+					_ = silentCmd("pnputil", "/remove-device", id).Run()
+					removed[idUpper] = true
+				}
+			}
+		}
+	}
+
+	time.Sleep(300 * time.Millisecond)
 	return nil
 }
 

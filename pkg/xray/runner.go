@@ -438,6 +438,11 @@ func (r *Runner) Connect(node *models.Config) error {
 	var instance *xcore.Instance
 	var lastErr error
 
+	// Ensure any phantom or disconnected ConectiveTUN device from previous runs is purged before xcore.New
+	if tunEnabled {
+		_ = tun.ResetOrRemoveAdapter(tunAdapterName)
+	}
+
 	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
 			// If inbound ports had conflict or TIME_WAIT, try fallback range
@@ -588,6 +593,11 @@ func (r *Runner) Disconnect() (err error) {
 			}()
 			err = inst.Close()
 		}()
+
+		if r.tunMode {
+			// Clean up the disconnected Wintun device so Windows doesn't retain a phantom device node
+			_ = tun.ResetOrRemoveAdapter(r.currentTunAdapter)
+		}
 		return err
 	}
 	return nil

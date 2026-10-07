@@ -219,3 +219,11 @@ func TestResetOrRemoveAdapterSafe(t *testing.T) {
 	_ = ResetOrRemoveAdapter("NonExistentAdapter")
 }
 
+func TestDeterministicWintunGUID(t *testing.T) {
+	guid := DeterministicWintunGUID("ConectiveTUN")
+	expected := "{D41FBB06-50D6-C889-B757-971E81B1495D}"
+	if guid != expected {
+		t.Errorf("DeterministicWintunGUID(\"ConectiveTUN\") = %s; want %s", guid, expected)
+	}
+}
+
