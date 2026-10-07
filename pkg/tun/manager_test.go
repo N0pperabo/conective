@@ -26,6 +26,12 @@ func TestIsWintunDevice(t *testing.T) {
 			want:       true,
 		},
 		{
+			name:       "ConectiveTUN adapter",
+			instanceID: `SWD\Wintun\{87654321-ABCD-EF01-2345-6789ABCDEF01}`,
+			desc:       "ConectiveTUN",
+			want:       true,
+		},
+		{
 			name:       "Wintun Userspace Tunnel",
 			instanceID: `SWD\Wintun\{98765432-FEDC-BA98-7654-3210FEDCBA98}`,
 			desc:       "Wintun Userspace Tunnel",

@@ -258,10 +258,10 @@ func (r *Runner) Connect(node *models.Config) error {
 		_ = r.instance.Close()
 		r.instance = nil
 		r.activeNode = nil
-		time.Sleep(400 * time.Millisecond) // Let previous session release ports and NDIS handle
+		time.Sleep(500 * time.Millisecond) // Let previous session release ports and NDIS handle
 	}
 	tunEnabled := r.tunMode
-	tunAdapterName := "FreeNodeTUN"
+	tunAdapterName := "ConectiveTUN"
 	if r.currentTunAdapter != "" {
 		tunAdapterName = r.currentTunAdapter
 	}
@@ -442,8 +442,19 @@ func (r *Runner) Connect(node *models.Config) error {
 	}
 
 	var instance *xcore.Instance
-	var startErr error
-	for attempt := 0; attempt < 4; attempt++ {
+	var lastErr error
+	tunAdapterCandidates := []string{"ConectiveTUN", "ConectiveTUN2", "ConectiveTUN3"}
+	candidateIdx := 0
+	if r.currentTunAdapter != "" {
+		for i, cand := range tunAdapterCandidates {
+			if cand == r.currentTunAdapter {
+				candidateIdx = i
+				break
+			}
+		}
+	}
+
+	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
 			// If inbound ports had conflict or TIME_WAIT, try fallback range
 			r.httpPort = ensureAvailablePort(r.httpPort+1, 20810+attempt*10)
@@ -451,18 +462,25 @@ func (r *Runner) Connect(node *models.Config) error {
 			inbounds[0]["port"] = r.socksPort
 			inbounds[1]["port"] = r.httpPort
 
-			// If TUN adapter failed with file already exists, swap adapter name
-			if tunEnabled && isFileExistsError(startErr) {
-				if tunAdapterName == "FreeNodeTUN" {
-					tunAdapterName = "FreeNodeTUN2"
-				} else {
-					tunAdapterName = "FreeNodeTUN"
-				}
+			// If TUN mode is enabled, rotate adapter candidate name to bypass any lingering PnP lock
+			if tunEnabled {
+				candidateIdx = (candidateIdx + 1) % len(tunAdapterCandidates)
+				tunAdapterName = tunAdapterCandidates[candidateIdx]
 				for _, inb := range inbounds {
 					if inb["tag"] == "tun-in" {
 						if st, ok := inb["settings"].(v2go.M); ok {
 							st["name"] = tunAdapterName
 						}
+					}
+				}
+			}
+			configMap["inbounds"] = inbounds
+		} else if tunEnabled {
+			tunAdapterName = tunAdapterCandidates[candidateIdx]
+			for _, inb := range inbounds {
+				if inb["tag"] == "tun-in" {
+					if st, ok := inb["settings"].(v2go.M); ok {
+						st["name"] = tunAdapterName
 					}
 				}
 			}
@@ -481,11 +499,18 @@ func (r *Runner) Connect(node *models.Config) error {
 
 		instance, err = xcore.New(cfg)
 		if err != nil {
+			lastErr = err
+			if tunEnabled {
+				log.Printf("[Runner] xcore.New attempt %d with adapter %s failed: %v, rotating adapter...", attempt+1, tunAdapterName, err)
+				time.Sleep(500 * time.Millisecond) // Let Windows PnP release adapter handles
+				continue
+			}
 			return fmt.Errorf("creating client instance: %w", err)
 		}
 
-		startErr = instance.Start()
+		startErr := instance.Start()
 		if startErr == nil {
+			lastErr = nil
 			if tunEnabled {
 				r.mu.Lock()
 				r.currentTunAdapter = tunAdapterName
@@ -494,10 +519,11 @@ func (r *Runner) Connect(node *models.Config) error {
 			break
 		}
 		_ = instance.Close()
-		time.Sleep(400 * time.Millisecond) // Let Windows release sockets/adapters before retry
+		lastErr = startErr
+		time.Sleep(500 * time.Millisecond) // Let Windows release sockets/adapters before retry
 	}
-	if startErr != nil {
-		return fmt.Errorf("starting client instance (%s): %w", tunAdapterName, startErr)
+	if lastErr != nil {
+		return fmt.Errorf("starting client instance (%s): %w", tunAdapterName, lastErr)
 	}
 
 	// Give WireGuard / proxy a brief moment to initialize before health check

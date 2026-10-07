@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"freenode/assets"
 	"freenode/pkg/api"
 	"freenode/pkg/cleanip"
@@ -158,12 +160,15 @@ func main() {
 
 	// Ensure wintun.dll is present next to executable and current directory for TUN mode
 	if exePath, err := os.Executable(); err == nil {
-		wintunTarget := filepath.Join(filepath.Dir(exePath), "wintun.dll")
-		if _, err := os.Stat(wintunTarget); os.IsNotExist(err) && len(assets.WintunDLL) > 0 {
+		exeDir := filepath.Dir(exePath)
+		wintunTarget := filepath.Join(exeDir, "wintun.dll")
+		if info, errStat := os.Stat(wintunTarget); (os.IsNotExist(errStat) || (errStat == nil && info.Size() == 0)) && len(assets.WintunDLL) > 0 {
 			_ = os.WriteFile(wintunTarget, assets.WintunDLL, 0644)
 		}
+		// Register application directory in Windows DLL search path so LoadLibraryEx always locates wintun.dll
+		_ = windows.SetDllDirectory(exeDir)
 
-		targetBin := filepath.Join(filepath.Dir(exePath), "bin")
+		targetBin := filepath.Join(exeDir, "bin")
 		_ = os.MkdirAll(targetBin, 0755)
 		for _, bName := range []string{"aether.exe", "psiphon-tunnel-core.exe"} {
 			dest := filepath.Join(targetBin, bName)
@@ -182,7 +187,7 @@ func main() {
 			}
 		}
 	}
-	if _, err := os.Stat("wintun.dll"); os.IsNotExist(err) && len(assets.WintunDLL) > 0 {
+	if info, errStat := os.Stat("wintun.dll"); (os.IsNotExist(errStat) || (errStat == nil && info.Size() == 0)) && len(assets.WintunDLL) > 0 {
 		_ = os.WriteFile("wintun.dll", assets.WintunDLL, 0644)
 	}
 

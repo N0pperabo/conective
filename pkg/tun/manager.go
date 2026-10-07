@@ -141,7 +141,7 @@ func FindAdapterIndex(adapterName string) (int, string, error) {
 	return -1, "", fmt.Errorf("Wintun adapter %q not detected in Windows network stack (requires Admin privileges and wintun.dll)", adapterName)
 }
 
-// IsWintunDevice checks if a device instance ID and description belong to a FreeNode/Xray Wintun adapter
+// IsWintunDevice checks if a device instance ID and description belong to a FreeNode/Conective/Xray Wintun adapter
 func IsWintunDevice(instanceID, desc string) bool {
 	idUpper := strings.ToUpper(strings.TrimSpace(instanceID))
 	descLower := strings.ToLower(strings.TrimSpace(desc))
@@ -150,6 +150,7 @@ func IsWintunDevice(instanceID, desc string) bool {
 	}
 	return strings.Contains(descLower, "xray tunnel") ||
 		strings.Contains(descLower, "freenode") ||
+		strings.Contains(descLower, "conective") ||
 		strings.Contains(descLower, "wintun")
 }
 
@@ -296,12 +297,20 @@ func (m *Manager) TeardownAdapter() error {
 
 	targetAdapter := m.adapterName
 	if targetAdapter == "" {
-		targetAdapter = "FreeNodeTUN"
+		targetAdapter = "ConectiveTUN"
 	}
 	_ = silentCmd("netsh", "interface", "ipv4", "set", "address", fmt.Sprintf("name=%s", targetAdapter), "source=dhcp").Run()
 	_ = silentCmd("netsh", "interface", "ipv4", "set", "dns", fmt.Sprintf("name=%s", targetAdapter), "source=dhcp").Run()
-	m.adapterName = ""
 
+	// Also reset other potential candidate adapter names
+	for _, alt := range []string{"ConectiveTUN", "ConectiveTUN2", "ConectiveTUN3", "FreeNodeTUN", "FreeNodeTUN2"} {
+		if alt != targetAdapter {
+			_ = silentCmd("netsh", "interface", "ipv4", "set", "address", fmt.Sprintf("name=%s", alt), "source=dhcp").Run()
+			_ = silentCmd("netsh", "interface", "ipv4", "set", "dns", fmt.Sprintf("name=%s", alt), "source=dhcp").Run()
+		}
+	}
+
+	m.adapterName = ""
 	m.active = false
 	// Do NOT call CleanupStaleWintunAdapters() on normal teardown!
 	// Leaving the static adapter installed allows instant reuse on subsequent connections
