@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conective</title><link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Main Container -->
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <img src="logo.jpg" class="logo-img" alt="Conective">
+        <div class="brand-text">
+          <h1>Conective</h1>
+          <span class="subtext">Embedded v2go & Xray Engine</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btnScan" class="btn btn-primary btn-glow">
+          <span class="btn-icon">⚡</span> Scan Free Nodes
+        </button>
+        <button id="btnSources" class="btn btn-secondary">
+          <span class="btn-icon">🌐</span> Sources (<span id="activeSourcesCount">0</span>)
+        </button>
+        <button id="btnSub" class="btn btn-secondary">
+          <span class="btn-icon">📦</span> Subscriptions
+        </button>
+        <button id="btnRouting" class="btn btn-secondary">
+          <span class="btn-icon">🔀</span> Routing
+        </button>
+        <button id="btnHistory" class="btn btn-secondary">
+          <span class="btn-icon">📜</span> History
+        </button>
+        <button id="btnCleanIP" class="btn btn-secondary" title="Cloudflare Clean IP & CDN Fronting Scanner">
+          <span class="btn-icon">☁️</span> CDN Clean IP
+        </button>
+        <button id="btnSettings" class="btn btn-secondary">
+          <span class="btn-icon">⚙</span> Settings
+        </button>
+      </div>
+    </header>
+
+    <!-- Hero Connection Bar -->
+    <section class="connection-hero">
+      <div class="conn-info">
+        <div class="status-indicator-box">
+          <div id="statusDot" class="status-dot disconnected"></div>
+          <div>
+            <div class="status-label" id="statusText">DISCONNECTED</div>
+            <div class="status-detail" id="statusDetail">Select a working node to connect</div>
+          </div>
+        </div>
+
+        <div class="node-quick-stats" id="activeNodeStats" style="display: none;">
+          <div class="stat-pill"><span id="activeFlag">🌐</span> <span id="activeCountry">Unknown</span></div>
+          <div class="stat-pill protocol-badge" id="activeProto">VLESS</div>
+          <div class="stat-pill latency-pill" id="activeLatency">-- ms</div>
+          <div class="stat-pill ip-pill" id="activeExitIP">IP: --</div>
+          <div class="stat-pill trust-pill" id="activeTrust" style="display: none;">🛡️ Trust: --</div>
+        </div>
+      </div>
+
+      <div class="conn-controls">
+        <div class="conn-mode-selector">
+          <label class="tun-toggle-btn" id="lblTunToggle" title="Enable TUN Mode: Routes ALL Windows traffic (apps, games, cmd, browsers) through VPN (Requires Run as Administrator)">
+            <input type="checkbox" id="chkHeroTunMode">
+            <span class="tun-switch"></span>
+            <span class="tun-label-text">🛡️ TUN Mode</span>
+          </label>
+          <label class="tun-toggle-btn gaming-toggle-btn" id="lblGamingToggle" title="Enable Gaming Mode: Low-latency TUN MTU (1400), TCP_NODELAY, UDP packet acceleration for gaming">
+            <input type="checkbox" id="chkHeroGamingMode">
+            <span class="tun-switch gaming-switch"></span>
+            <span class="tun-label-text">🎮 Gaming Mode</span>
+          </label>
+        </div>
+
+        <div class="ports-info">
+          <div class="ports-row">
+            <span>SOCKS: <b id="lblSocksPort">10808</b></span>
+            <span class="ports-sep">|</span>
+            <span>HTTP: <b id="lblHttpPort">10809</b></span>
+          </div>
+          <div class="status-badges-row">
+            <span class="sysproxy-badge" id="badgeSysProxy">System Proxy: ON</span>
+            <span class="tun-status-badge" id="badgeTunStatus" style="display: none;">TUN VPN: ACTIVE</span>
+            <span class="lan-status-badge" id="badgeLanStatus" style="display: none;">📡 LAN SHARE</span>
+          </div>
+        </div>
+        <button id="btnConnect" class="btn btn-connect" disabled>CONNECT</button>
+      </div>
+
+      <!-- Minimal White Connection Progress Bar -->
+      <div id="connProgressTrack" class="conn-progress-track">
+        <div id="connProgressBar" class="conn-progress-bar"></div>
+      </div>
+    </section>
+
+    <!-- Live Scan Banner (shown when scan is active) -->
+    <div id="scanBanner" class="scan-banner" style="display: none;">
+      <div class="scan-header">
+        <div class="scan-title">
+          <div class="spinner"></div>
+          <div>
+            <b id="scanStateText">Scanning Free Nodes...</b>
+            <div class="scan-msg" id="scanMessageText">Fetching sources...</div>
+          </div>
+        </div>
+        <button id="btnCancelScan" class="btn btn-danger btn-sm">Cancel Scan</button>
+      </div>
+
+      <div class="scan-stats-grid">
+        <div class="scan-metric">
+          <div class="m-label">Sources</div>
+          <div class="m-val" id="scanSources">0 / 0</div>
+        </div>
+        <div class="scan-metric">
+          <div class="m-label">Fetched</div>
+          <div class="m-val" id="scanFetched">0</div>
+        </div>
+        <div class="scan-metric">
+          <div class="m-label">Parsed</div>
+          <div class="m-val" id="scanParsed">0</div>
+        </div>
+        <div class="scan-metric">
+          <div class="m-label">Duplicates</div>
+          <div class="m-val text-muted" id="scanDuplicates">0</div>
+        </div>
+        <div class="scan-metric">
+          <div class="m-label">Testing Candidates</div>
+          <div class="m-val" id="scanTesting">0 / 0</div>
+        </div>
+        <div class="scan-metric highlight-green">
+          <div class="m-label">Working Nodes</div>
+          <div class="m-val" id="scanWorking">0</div>
+        </div>
+        <div class="scan-metric">
+          <div class="m-label">Avg Latency</div>
+          <div class="m-val" id="scanAvgLat">0ms</div>
+        </div>
+      </div>
+
+      <div class="progress-bar-bg">
+        <div id="scanProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <!-- Main Content: Stats Overview & Nodes List -->
+    <main class="main-content">
+      <!-- Summary Bar -->
+      <div class="stats-overview">
+        <div class="summary-card">
+          <div class="sc-title">Working Nodes</div>
+          <div class="sc-val text-green" id="statWorkingCount">0</div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-title">Total Extracted</div>
+          <div class="sc-val" id="statTotalCount">0</div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-title">Average Latency</div>
+          <div class="sc-val" id="statAvgLatency">0 ms</div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-title">Active Sources</div>
+          <div class="sc-val" id="statActiveSources">0</div>
+        </div>
+      </div>
+
+      <!-- Filters & Search Toolbar -->
+      <div class="toolbar">
+        <div class="search-box">
+          <input type="text" id="searchInput" placeholder="Search by Country, Protocol, Server, or Name...">
+        </div>
+
+        <div class="filter-controls">
+          <div class="filter-tabs">
+            <button type="button" id="tabFavorites" class="filter-tab tab-fav" title="Filter by favorite nodes (⭐)">
+              ⭐ Favorites <span id="favCountBadge" class="tab-badge" style="display: none;">0</span>
+            </button>
+          </div>
+
+          <select id="filterStatus">
+            <option value="working" selected>Working Only</option>
+            <option value="favorites">⭐ Favorites Only</option>
+            <option value="all">All Nodes</option>
+            <option value="untested">Untested</option>
+            <option value="dead">Dead</option>
+          </select>
+
+          <select id="filterProto">
+            <option value="all">All Protocols</option>
+            <option value="psiphon">Psiphon (Clean IP)</option>
+            <option value="vless">VLESS</option>
+            <option value="vmess">VMess</option>
+            <option value="trojan">Trojan</option>
+            <option value="ss">Shadowsocks</option>
+            <option value="hysteria2">Hysteria2</option>
+          </select>
+
+          <select id="filterCountry">
+            <option value="all">All Countries</option>
+          </select>
+
+          <select id="sortBy">
+            <option value="latency" selected>Sort: Lowest Ping</option>
+            <option value="trust">Sort: Trust Score</option>
+            <option value="country">Sort: Country</option>
+            <option value="last_tested">Sort: Recently Tested</option>
+          </select>
+
+          <button id="btnPingAll" class="btn btn-primary btn-sm btn-glow" title="Ping test all candidate configs concurrently and update their latencies live">
+            <span class="btn-icon">⚡</span> Ping All
+          </button>
+          <button id="btnCheckAllTrust" class="btn btn-secondary btn-sm" title="Check ipdata Trust Score for all working nodes">🛡️ Check Trust</button>
+          <button id="btnClearNodes" class="btn btn-outline-danger btn-sm" title="Clear all configs">Clear All</button>
+        </div>
+      </div>
+
+      <!-- Nodes Table -->
+      <div class="table-container">
+        <table class="nodes-table">
+          <thead>
+            <tr>
+              <th width="45">#</th>
+              <th>Country</th>
+              <th>Protocol</th>
+              <th>Node Name & Server</th>
+              <th>Transport / Security</th>
+              <th>Ping / Latency</th>
+              <th>Trust Score</th>
+              <th width="155">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="nodesTableBody">
+            <tr>
+              <td colspan="8" class="text-center empty-state">
+                No working nodes in database. Click <b>Scan Free Nodes</b> to aggregate and live test!
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="pagination">
+        <span id="pageInfo">Showing 0 nodes</span>
+        <div class="page-btns">
+          <button id="btnPrevPage" class="btn btn-sm btn-secondary" disabled>Previous</button>
+          <button id="btnNextPage" class="btn btn-sm btn-secondary" disabled>Next</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal: Sources Manager -->
+  <div id="sourcesModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Source Manager (v2go Sources)</h3>
+        <button class="modal-close" data-close="sourcesModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">
+          Official v2go repository sources are listed below. You can enable, disable, add, or delete sources.
+        </p>
+
+        <form id="addSourceForm" class="add-source-form">
+          <input type="text" id="srcName" placeholder="Source Name (e.g. My Telegram Sub)" required>
+          <input type="url" id="srcURL" placeholder="https://..." required>
+          <select id="srcFormat">
+            <option value="auto">Auto Detect</option>
+            <option value="base64">Base64 Subscription</option>
+            <option value="text">Plain Text / Mixed</option>
+          </select>
+          <button type="submit" class="btn btn-primary btn-sm">+ Add Source</button>
+        </form>
+
+        <div class="sources-table-wrap">
+          <table class="sources-table">
+            <thead>
+              <tr>
+                <th width="60">Active</th>
+                <th>Name</th>
+                <th>URL</th>
+                <th>Format</th>
+                <th>Configs</th>
+                <th>Status</th>
+                <th width="80">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="sourcesTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Routing & Split Tunneling -->
+  <div id="routingModal" class="modal">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3>🔀 Routing & Split Tunneling (مسیریابی هوشمند)</h3>
+        <button class="modal-close" data-close="routingModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="routingForm">
+          <div class="form-group" style="margin-bottom: 18px;">
+            <label style="font-size: 14px; margin-bottom: 8px;">انتخاب حالت مسیریابی ترافیک (Routing Mode):</label>
+            <div class="routing-mode-cards">
+              <label class="mode-card" id="modeCard1">
+                <div class="mode-card-header">
+                  <input type="radio" name="routeModeRadio" id="radioMode1" value="proxy_all">
+                  <span class="mode-card-title">۱. ترافیک از همه‌چی عبور کنه (Proxy All)</span>
+                </div>
+                <div class="mode-card-desc">تمام ترافیک ویندوز، نرم‌افزارها و تمام وب‌سایت‌ها از فیلترشکن رد می‌شوند. بدون نیاز به هیچ لیستی.</div>
+              </label>
+
+              <label class="mode-card is-active" id="modeCard2">
+                <div class="mode-card-header">
+                  <input type="radio" name="routeModeRadio" id="radioMode2" value="blacklist" checked>
+                  <span class="mode-card-title">۲. ترافیک از این‌ها عبور نکنه (بلک‌لیست / Blacklist)</span>
+                </div>
+                <div class="mode-card-desc">کل ترافیک سیستم از فیلترشکن رد می‌شود به جز برنامه‌ها و سایت‌های مشخص‌شده در بلک‌لیست (مثل سایت‌های ایرانی، بانکی و بازی‌ها).</div>
+              </label>
+
+              <label class="mode-card" id="modeCard3">
+                <div class="mode-card-header">
+                  <input type="radio" name="routeModeRadio" id="radioMode3" value="whitelist">
+                  <span class="mode-card-title">۳. ترافیک فقط از این‌ها عبور کنه (وایت‌لیست / Whitelist)</span>
+                </div>
+                <div class="mode-card-desc">فقط برنامه‌ها و دامنه‌هایی که در وایت‌لیست قرار می‌دهید از فیلترشکن رد می‌شوند و مابقی سیستم به صورت عادی کار می‌کند.</div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Section 1: Proxy All (هیچی لازم نیست) -->
+          <div id="sectionMode1" class="mode-section" style="display: none;">
+            <div class="mode-info-box">
+              <div class="mode-info-icon">🌐</div>
+              <div>
+                <h4>حالت ۱: عبور تمام ترافیک از فیلترشکن (Proxy All)</h4>
+                <p>در این حالت هیچ استثنایی اعمال نمی‌شود و کل ترافیک سیستم از فیلترشکن عبور خواهد کرد. برای این حالت نیازی به تعریف لیست نیست.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Blacklist (ترافیک از این‌ها عبور نکنه) -->
+          <div id="sectionMode2" class="mode-section">
+            <div class="section-title-badge badge-blacklist">
+              <span>🚫 بلک‌لیست: مواردی که نباید از فیلترشکن عبور کنند (Direct / Bypass)</span>
+              <small>این برنامه‌ها و سایت‌ها مستقیماً با اینترنت بدون فیلترشکن و با آی‌پی ایران و کمترین پینگ کار خواهند کرد.</small>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label style="margin-bottom: 0;">برنامه‌های بلک‌لیست (Direct Apps)</label>
+                  <button type="button" class="btn btn-secondary btn-xs btn-browse-active-apps" data-target="direct" title="Browse running & installed apps to bypass proxy">
+                    <span class="btn-icon">🔍</span> Browse Active Apps
+                  </button>
+                </div>
+                <textarea id="routeBlacklistApps" rows="6" placeholder="cs2.exe&#10;valorant.exe&#10;dota2.exe&#10;idman.exe" style="font-family: monospace; font-size: 12px;"></textarea>
+                <small>نام فایل اجرایی بازی‌ها یا برنامه‌ها (هر سطر یک برنامه). بدون پینگ اضافی و مستقیم وصل می‌شوند.</small>
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label>سایت‌ها و دامنه‌های بلک‌لیست (Direct Domains)</label>
+                <textarea id="routeBlacklistDomains" rows="6" placeholder="regexp:.*\.ir$&#10;shaparak.ir&#10;digikala.com&#10;divar.ir&#10;snapp.ir" style="font-family: monospace; font-size: 12px;"></textarea>
+                <small>دامنه‌های سایت‌های ایرانی و بانکی (هر سطر یک دامنه). با آی‌پی ایران باز می‌شوند.</small>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:flex-end;">
+              <button type="button" id="btnResetBlacklist" class="btn btn-secondary btn-sm">بارگذاری پیش‌فرض بلک‌لیست (سایت‌های ایرانی و بازی‌ها)</button>
+            </div>
+          </div>
+
+          <!-- Section 3: Whitelist (ترافیک فقط از این‌ها عبور کنه) -->
+          <div id="sectionMode3" class="mode-section" style="display: none;">
+            <div class="section-title-badge badge-whitelist">
+              <span>✅ وایت‌لیست: مواردی که فقط باید از فیلترشکن عبور کنند (Proxy Only)</span>
+              <small>فقط برنامه‌ها و سایت‌هایی که در زیر وارد می‌کنید از فیلترشکن رد می‌شوند و مابقی سیستم مستقیم وصل است.</small>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <label style="margin-bottom: 0;">برنامه‌های وایت‌لیست (Proxy Apps)</label>
+                  <button type="button" class="btn btn-secondary btn-xs btn-browse-active-apps" data-target="proxy" title="Browse running & installed apps to proxy">
+                    <span class="btn-icon">🔍</span> Browse Active Apps
+                  </button>
+                </div>
+                <textarea id="routeWhitelistApps" rows="6" placeholder="telegram.exe&#10;discord.exe&#10;chrome.exe&#10;spotify.exe" style="font-family: monospace; font-size: 12px;"></textarea>
+                <small>نام برنامه‌هایی که مایلید از پروکسی رد شوند (هر سطر یک برنامه).</small>
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label>سایت‌ها و دامنه‌های وایت‌لیست (Proxy Domains)</label>
+                <textarea id="routeWhitelistDomains" rows="6" placeholder="google.com&#10;youtube.com&#10;twitter.com&#10;x.com&#10;t.me&#10;instagram.com" style="font-family: monospace; font-size: 12px;"></textarea>
+                <small>دامنه‌هایی که باید از فیلترشکن عبور کنند (هر سطر یک دامنه).</small>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:flex-end;">
+              <button type="button" id="btnResetWhitelist" class="btn btn-secondary btn-sm">بارگذاری پیش‌فرض وایت‌لیست (برنامه‌ها و سایت‌های فیلتر)</button>
+            </div>
+          </div>
+
+          <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+            <button type="button" class="btn btn-secondary btn-sm" data-close="routingModal">انصراف (Cancel)</button>
+            <button type="submit" class="btn btn-primary">ذخیره و اعمال روتینگ (Save Routing)</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Settings -->
+  <div id="settingsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Application Settings</h3>
+        <button class="modal-close" data-close="settingsModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="settingsForm">
+          <div class="form-group">
+            <label>Live-Test Concurrency Workers</label>
+            <select id="setConcurrency">
+              <option value="50">50 Workers (Gentle on slow networks)</option>
+              <option value="100" selected>100 Workers (Standard)</option>
+              <option value="250">250 Workers (High speed broadband)</option>
+              <option value="500">500 Workers (v2go high throughput)</option>
+              <option value="1000">1000 Workers (Ultra high performance - Full Scan)</option>
+            </select>
+            <small>Controls how many Xray live tests run concurrently in parallel.</small>
+          </div>
+
+          <div class="form-group">
+            <label>Test Timeout (Seconds)</label>
+            <input type="number" id="setTimeout" min="1" max="30" value="5">
+          </div>
+
+          <div class="form-group">
+            <label>Test Connectivity Endpoint</label>
+            <input type="text" id="setEndpoint" value="http://cp.cloudflare.com/generate_204">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Local SOCKS5 Port</label>
+              <input type="number" id="setSocksPort" value="10808">
+            </div>
+            <div class="form-group">
+              <label>Local HTTP Proxy Port</label>
+              <input type="number" id="setHttpPort" value="10809">
+            </div>
+          </div>
+
+          <div class="form-check">
+            <label>
+              <input type="checkbox" id="setTunMode">
+              <b>Enable TUN Mode (Global VPN)</b> - Route all Windows apps, games, Discord & system traffic (Requires Run as Administrator)
+            </label>
+          </div>
+
+          <div class="form-check">
+            <label>
+              <input type="checkbox" id="setGamingMode">
+              <b>Gaming Mode (Low-Latency TUN)</b> - Low MTU (1400), TCP_NODELAY & prioritized UDP routing for competitive gaming
+            </label>
+          </div>
+
+          <div class="form-check">
+            <label>
+              <input type="checkbox" id="setShareLAN">
+              <b>Share over LAN / Hotspot</b> - Listen on 0.0.0.0 allowing phones, consoles & other PCs on your Wi-Fi to use this proxy
+            </label>
+          </div>
+
+          <div id="lanShareInfoBox" class="lan-share-box" style="display: none;">
+            <div class="lan-share-header">
+              <span class="lan-badge">📡 LAN Proxy Ready</span>
+              <button type="button" id="btnRefreshLANInfo" class="btn btn-xs btn-secondary" title="Refresh local IP detection">🔄 Refresh</button>
+            </div>
+            <div class="lan-share-details">
+              <div class="lan-row">
+                <span class="lan-label">Local IP Address:</span>
+                <span class="lan-value font-mono" id="lanLocalIPsText">Detecting...</span>
+              </div>
+              <div class="lan-row">
+                <span class="lan-label">HTTP Proxy:</span>
+                <span class="lan-value font-mono" id="lanHttpProxyText">http://127.0.0.1:10809</span>
+                <button type="button" class="btn-copy-small" id="btnCopyLanHttp" title="Copy HTTP Proxy">📋</button>
+              </div>
+              <div class="lan-row">
+                <span class="lan-label">SOCKS5 Proxy:</span>
+                <span class="lan-value font-mono" id="lanSocksProxyText">127.0.0.1:10808</span>
+                <button type="button" class="btn-copy-small" id="btnCopyLanSocks" title="Copy SOCKS5 Proxy">📋</button>
+              </div>
+            </div>
+            <div class="lan-guide">
+              <b>Device Setup Instructions:</b>
+              <ol>
+                <li>Connect your phone, console (Switch/PS5), or other PC to the <b>same Wi-Fi</b> or Windows Mobile Hotspot.</li>
+                <li>In that device's <b>Wi-Fi Settings</b>, configure Proxy to <b>Manual</b>.</li>
+                <li>Enter the <b>Local IP Address</b> above as Server/Host, and port <b>10809</b> (HTTP) or <b>10808</b> (SOCKS5).</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="form-check">
+            <label>
+              <input type="checkbox" id="setSystemProxy" checked>
+              Automatically Set Windows System Proxy on Connect
+            </label>
+          </div>
+
+          <div class="form-check">
+            <label>
+              <input type="checkbox" id="setAutoFailover" checked>
+              Auto-Failover: Automatically switch to next best node if connection drops
+            </label>
+          </div>
+
+          <div class="form-check">
+            <label>
+              <input type="checkbox" id="setMinimizeToTray" checked>
+              <b>Minimize to System Tray on Close</b> - Keep Conective running in system tray when window is closed
+            </label>
+          </div>
+
+          <div class="form-check">
+            <label>
+              <input type="checkbox" id="setStartWithWindows">
+              <b>Start with Windows</b> - Automatically launch Conective in system tray when Windows starts
+            </label>
+          </div>
+
+          <div class="form-row">
+            <div class="form-check">
+              <label>
+                <input type="checkbox" id="setAutoScan" checked>
+                Periodic Auto Scan
+              </label>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <select id="setAutoScanInterval">
+                <option value="15">Every 15 minutes</option>
+                <option value="30">Every 30 minutes</option>
+                <option value="60">Every 1 hour</option>
+                <option value="180" selected>Every 3 hours (Recommended)</option>
+                <option value="360">Every 6 hours</option>
+                <option value="720">Every 12 hours</option>
+                <option value="1440">Every 24 hours</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 15px;">
+            <label>Update Repository (GitHub)</label>
+            <input type="text" id="setUpdateRepo" placeholder="connective-app/connective" value="connective-app/connective">
+            <small>GitHub repository used to check for new releases (owner/repo)</small>
+          </div>
+
+          <!-- Software Update Section (Feature 47) -->
+          <div class="settings-update-box" style="margin: 16px 0; padding: 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <b style="font-size: 13px;">Software Update</b>
+                <div class="text-muted" style="font-size: 11px;">Current Version: <span id="lblCurrentVersion">1.0.0</span></div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="updateStatusBadge" class="status-badge" style="display: none; padding: 3px 8px; border-radius: 4px; font-size: 11px;"></span>
+                <button type="button" id="btnCheckUpdate" class="btn btn-secondary btn-sm">
+                  <span class="btn-icon">🔄</span> Check for Updates
+                </button>
+              </div>
+            </div>
+
+            <!-- Release Preview Box -->
+            <div id="updatePreviewBox" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="font-weight: 600; font-size: 12px; color: var(--color-primary);" id="updateTitle">New version available!</div>
+                <div class="text-muted" style="font-size: 11px;" id="updateTag"></div>
+              </div>
+              <div id="updateNotes" style="font-size: 11px; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.25); padding: 8px; border-radius: 4px; white-space: pre-wrap; font-family: monospace; color: #ddd; margin-bottom: 10px;"></div>
+              <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <a id="btnReleaseLink" href="#" target="_blank" class="btn btn-outline-secondary btn-sm" style="display: none;">View Release</a>
+                <button type="button" id="btnApplyUpdate" class="btn btn-primary btn-sm">🚀 Install / Download Update</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
+            <button type="button" id="btnExitApp" class="btn btn-danger btn-sm" title="Cleanly stop Conective and restore Windows network settings">Exit Conective</button>
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Subscriptions Import/Export -->
+  <div id="subModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Subscription Manager</h3>
+        <button class="modal-close" data-close="subModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <h4>Export Working Nodes</h4>
+        <p class="modal-desc">Export verified working nodes directly from Conective database.</p>
+        <div class="export-actions">
+          <button id="btnExportPlain" class="btn btn-secondary">Copy Plain Links (TXT)</button>
+          <button id="btnExportBase64" class="btn btn-secondary">Copy Base64 Subscription</button>
+        </div>
+
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border-color);">
+
+        <h4>Import Configurations</h4>
+        <p class="modal-desc">Paste raw links, Base64 strings, or enter a remote subscription URL.</p>
+        <div class="form-group">
+          <label>Remote Subscription URL</label>
+          <div style="display:flex; gap:10px;">
+            <input type="url" id="importUrl" placeholder="https://example.com/sub.txt">
+            <button id="btnImportUrl" class="btn btn-primary btn-sm">Fetch & Import</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Or Paste Raw Links / Base64 / Clean IPs</label>
+          <textarea id="importText" rows="4" placeholder="vless://...&#10;vmess://...&#10;104.16.88.99&#10;188.114.96.1:443&#10;23.209.210.116#Akamai&#10;172.67.182.203:8443#Cloudflare CDN"></textarea>
+          <small style="color:var(--text-muted); font-size:11px; display:block; margin-top:4px;">Supports VLESS, VMess, Trojan, SS, Hysteria2, or CDN Clean IPs (e.g. 104.16.88.99, 188.114.96.1:443, 23.209.210.116#Akamai, psiphon://...)</small>
+          <button id="btnImportText" class="btn btn-secondary btn-sm" style="margin-top: 8px;">Import Pasted Text</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: History -->
+  <div id="historyModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Scan Sessions History</h3>
+        <button class="modal-close" data-close="historyModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+          <button id="btnClearHistory" class="btn btn-outline-danger btn-sm">Clear History</button>
+        </div>
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>Status</th>
+                <th>Fetched</th>
+                <th>Parsed</th>
+                <th>Duplicates</th>
+                <th>Tested</th>
+                <th>Working</th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: IPData Intelligence & Trust Score Inspection -->
+  <div id="ipdataModal" class="modal">
+    <div class="modal-content ipdata-modal-content">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:22px;">🛡️</span>
+          <h3>ipdata.co Threat Intelligence</h3>
+        </div>
+        <button class="modal-close" data-close="ipdataModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="ipdata-card-wrapper">
+          <!-- Top IP & Location banner -->
+          <div class="ipdata-card-header">
+            <div>
+              <span class="ipdata-sub-label">IP ADDRESS</span>
+              <div class="ipdata-main-ip" id="ipdataValIP">--</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="ipdata-sub-label">COUNTRY</span>
+              <div class="ipdata-main-country" id="ipdataValCountry">--</div>
+            </div>
+          </div>
+
+          <!-- Quick facts grid matching the screenshot -->
+          <div class="ipdata-summary-grid">
+            <div class="ipdata-grid-item">
+              <span class="ipdata-sub-label">COUNTRY CODE</span>
+              <span class="ipdata-grid-val" id="ipdataValCountryCode">--</span>
+            </div>
+            <div class="ipdata-grid-item">
+              <span class="ipdata-sub-label">CONTINENT</span>
+              <span class="ipdata-grid-val" id="ipdataValContinent">--</span>
+            </div>
+            <div class="ipdata-grid-item">
+              <span class="ipdata-sub-label">CURRENCY</span>
+              <span class="ipdata-grid-val" id="ipdataValCurrency">--</span>
+            </div>
+            <div class="ipdata-grid-item">
+              <span class="ipdata-sub-label">TIME ZONE</span>
+              <span class="ipdata-grid-val" id="ipdataValTimeZone">--</span>
+            </div>
+            <div class="ipdata-grid-item" style="grid-column: span 2;">
+              <span class="ipdata-sub-label">ORGANISATION</span>
+              <span class="ipdata-grid-val" id="ipdataValOrg">--</span>
+            </div>
+            <div class="ipdata-grid-item">
+              <span class="ipdata-sub-label">THREATS</span>
+              <div class="threats-badge-row">
+                <span class="threats-icon-circle">!</span>
+                <span class="threats-count-val" id="ipdataValThreatCount">0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Trust score display matching ipdata.co screenshot -->
+          <div class="ipdata-trust-score-box">
+            <span class="ipdata-sub-label">TRUST SCORE</span>
+            <div class="ipdata-trust-score-title" id="ipdataValTrustScore">--</div>
+          </div>
+
+          <!-- Threat badges -->
+          <div class="ipdata-pill-row">
+            <span class="ipdata-flag-pill" id="flagDatacenter">🏢 Datacenter: Yes</span>
+            <span class="flag-pill" id="flagVPN">🔒 VPN: Yes</span>
+            <span class="flag-pill" id="flagProxy">🌐 Proxy: No</span>
+            <span class="flag-pill" id="flagTor">🧅 Tor: No</span>
+            <span class="flag-pill" id="flagThreat">⚠️ Threat: No</span>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:18px;">
+          <button id="btnRecheckIPData" class="btn btn-primary btn-sm">
+            <span class="btn-icon">🔄</span> Re-check on ipdata.co
+          </button>
+          <button class="btn btn-secondary btn-sm" data-close="ipdataModal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Cloudflare Clean IP Scanner & CDN Fronting -->
+  <div id="cleanIPModal" class="modal">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:22px;">☁️</span>
+          <h3>Cloudflare Clean IP / CDN Fronting (اتصال مستقیم فیلترشکن)</h3>
+        </div>
+        <button class="modal-close" data-close="cleanIPModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc" style="direction: rtl; text-align: right; line-height: 1.6; font-size: 13px;">
+          اسکن هوشمند آی‌پی‌های تمیز شبکه Anycast کلودفلر (مشابه پروژه شیر و خورشید / Cloudflare WARP). با اتصال مستقیم به این آی‌پی‌ها بدون نیاز به هیچ کانفیگ یا اشتراک خارجی، اینترنت آزاد و نامحدود فعال می‌شود.
+        </p>
+
+        <!-- Scanner Configuration Controls -->
+        <div class="cleanip-controls-box">
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label>Worker Threads</label>
+              <select id="cleanIPWorkers">
+                <option value="50">50 Workers (Gentle)</option>
+                <option value="100" selected>100 Workers (Recommended)</option>
+                <option value="200">200 Workers (Fast)</option>
+                <option value="300">300 Workers (High Speed)</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label>Timeout (ms)</label>
+              <select id="cleanIPTimeout">
+                <option value="1000">1000 ms (Fast filter)</option>
+                <option value="1500" selected>1500 ms (Standard)</option>
+                <option value="2500">2500 ms (Thorough)</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1.2;">
+              <label>تعداد آی‌پی برای اسکن (IP Count)</label>
+              <input type="number" id="cleanIPSampleSize" value="500" min="10" max="10000" step="50" placeholder="مثلاً 500، 1000، 2000...">
+            </div>
+            <div class="form-group" style="flex: 0.7;">
+              <label>Target Port</label>
+              <input type="number" id="cleanIPPort" value="443" min="1" max="65535">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end;">
+            <button id="btnCancelCleanIP" class="btn btn-danger btn-sm" style="display: none;">
+              Cancel Scan
+            </button>
+            <button id="btnStartCleanIP" class="btn btn-primary btn-glow">
+              <span class="btn-icon">⚡</span> Start Clean IP Scan
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Scan Progress Banner -->
+        <div id="cleanIPScanBanner" class="scan-banner" style="display: none; margin-top: 15px;">
+          <div class="scan-header">
+            <div class="scan-title">
+              <div class="spinner"></div>
+              <div>
+                <b id="cleanIPStateText">Scanning Cloudflare Clean IPs...</b>
+                <div class="scan-msg" id="cleanIPMsgText">Connecting to edge servers...</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="scan-stats-grid">
+            <div class="scan-metric">
+              <div class="m-label">Total Candidates</div>
+              <div class="m-val" id="cleanIPMetricTotal">0</div>
+            </div>
+            <div class="scan-metric">
+              <div class="m-label">Tested IPs</div>
+              <div class="m-val" id="cleanIPMetricTested">0</div>
+            </div>
+            <div class="scan-metric highlight-green">
+              <div class="m-label">Clean Working IPs</div>
+              <div class="m-val" id="cleanIPMetricWorking">0</div>
+            </div>
+            <div class="scan-metric">
+              <div class="m-label">Fastest Latency</div>
+              <div class="m-val" id="cleanIPMetricBestLat">-- ms</div>
+            </div>
+          </div>
+
+          <div class="progress-bar-bg" style="margin-top: 12px;">
+            <div id="cleanIPProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Clean IPs Results Table & Standalone Action -->
+        <div class="cleanip-results-header" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; flex-wrap: wrap; gap: 8px;">
+          <h4 style="font-size: 14px; font-weight: 600;">Fastest Clean Edge IPs (<span id="cleanIPFoundCount">0</span> found)</h4>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button id="btnSaveFastestCleanIP" class="btn btn-secondary btn-sm" disabled title="افزودن سریع‌ترین آی‌پی به کانفیگ‌های اصلی">
+              ➕ افزودن سریع‌ترین به کانفیگ‌ها
+            </button>
+            <button id="btnSaveAllCleanIP" class="btn btn-secondary btn-sm" disabled title="افزودن همه آی‌پی‌های تمیز به کانفیگ‌های اصلی">
+              ➕ افزودن همه به کانفیگ‌ها
+            </button>
+            <button id="btnConnectFastestCleanIP" class="btn btn-primary btn-sm btn-glow" disabled>
+              ⚡ اتصال به سریع‌ترین آی‌پی (Connect VPN)
+            </button>
+          </div>
+        </div>
+
+        <div class="table-container" style="max-height: 300px; overflow-y: auto; margin-top: 8px;">
+          <table class="nodes-table">
+            <thead>
+              <tr>
+                <th width="45">#</th>
+                <th>Clean IP Address</th>
+                <th>Subnet / Block</th>
+                <th>Latency</th>
+                <th width="240">عملیات (Actions)</th>
+              </tr>
+            </thead>
+            <tbody id="cleanIPTableBody">
+              <tr>
+                <td colspan="5" class="text-center empty-state">
+                  No scan results yet. Click <b>Start Clean IP Scan</b> to discover low-latency unblocked Cloudflare edge IPs.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Visual App Picker for Split Tunneling -->
+  <div id="appPickerModal" class="modal">
+    <div class="modal-content modal-lg app-picker-modal">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 20px;">🖥️</span>
+          <div>
+            <h3 style="margin: 0; font-size: 15px;">Visual App Picker (انتخاب برنامه‌ها برای مسیریابی)</h3>
+            <span style="font-size: 11px; color: var(--text-muted);">Select active Windows processes or installed apps for split tunneling</span>
+          </div>
+        </div>
+        <button class="modal-close" data-close="appPickerModal">&times;</button>
+      </div>
+
+      <div class="modal-body app-picker-body">
+        <!-- Top Toolbar: Search + Tabs + Refresh -->
+        <div class="app-picker-toolbar">
+          <div class="app-picker-search-box">
+            <span class="app-picker-search-icon">🔍</span>
+            <input type="text" id="appPickerSearch" placeholder="Search application by name or exe (e.g. chrome, telegram, cs2)..." autocomplete="off">
+            <button type="button" id="appPickerClearSearch" class="app-picker-clear-btn" style="display: none;">&times;</button>
+          </div>
+
+          <div class="app-picker-tabs">
+            <button type="button" class="app-picker-tab is-active" data-filter="running">
+              <span>⚡ Active Running</span>
+              <span class="app-picker-badge" id="appCountRunning">0</span>
+            </button>
+            <button type="button" class="app-picker-tab" data-filter="installed">
+              <span>📦 All Installed</span>
+              <span class="app-picker-badge" id="appCountInstalled">0</span>
+            </button>
+            <button type="button" class="app-picker-tab" data-filter="all">
+              <span>🌐 All Apps</span>
+            </button>
+          </div>
+
+          <button type="button" id="appPickerRefreshBtn" class="btn btn-secondary btn-sm" title="Refresh active processes">
+            <span class="btn-icon">🔄</span> Refresh
+          </button>
+        </div>
+
+        <!-- Explanatory banner / hint -->
+        <div class="app-picker-notice" id="appPickerNotice">
+          Click <b>+ Direct</b> to bypass VPN (Direct connection) or <b>+ Proxy</b> to route app through VPN. Added apps are saved when you click "Save Routing".
+        </div>
+
+        <!-- Apps List Container -->
+        <div class="app-picker-list" id="appPickerList">
+          <div class="app-picker-loading">
+            <div class="conn-spinner"></div>
+            <span>Detecting applications on Windows...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background: var(--bg-secondary); border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+        <div style="font-size: 12px; color: var(--text-muted);" id="appPickerSummary">
+          Showing 0 applications
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-primary btn-sm" data-close="appPickerModal">Done / Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
