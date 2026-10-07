@@ -598,7 +598,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		directApps := s.db.GetSetting("direct_apps", "cs2.exe\nvalorant.exe\ndota2.exe\nleagueclient.exe\nidman.exe")
 		proxyApps := s.db.GetSetting("proxy_apps", "telegram.exe\ndiscord.exe\nchrome.exe\nmsedge.exe\nfirefox.exe\nspotify.exe")
 		blockDomains := s.db.GetSetting("block_domains", "")
-		updateRepo := s.db.GetSetting("update_repo", "connective-app/connective")
+		updateRepo := s.db.GetSetting("update_repo", "N0pperabo/conective")
 		startWithWindows := s.db.GetSetting("start_with_windows", "false") == "true" || autostart.IsEnabled()
 		minimizeToTray := s.db.GetSetting("minimize_to_tray", "true") == "true"
 

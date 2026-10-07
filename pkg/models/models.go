@@ -149,5 +149,5 @@ type Settings struct {
 	DirectApps    string `json:"direct_apps"`    // App executables to bypass proxy (e.g. cs2.exe, valorant.exe)
 	ProxyApps     string `json:"proxy_apps"`     // App executables to force through proxy (e.g. telegram.exe, discord.exe)
 	BlockDomains  string `json:"block_domains"`  // Domains to block (e.g. ads)
-	UpdateRepo    string `json:"update_repo"`    // GitHub repository for auto-updates (e.g. "connective-app/connective")
+	UpdateRepo    string `json:"update_repo"`    // GitHub repository for auto-updates (e.g. "N0pperabo/conective")
 }

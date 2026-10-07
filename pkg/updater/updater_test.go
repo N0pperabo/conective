@@ -44,6 +44,8 @@ func TestNormalizeRepo(t *testing.T) {
 		{"connective-app/connective", "connective-app/connective"},
 		{"https://github.com/connective-app/connective", "connective-app/connective"},
 		{"https://github.com/connective-app/connective.git", "connective-app/connective"},
+		{"N0pperabo/conective", "N0pperabo/conective"},
+		{"https://github.com/N0pperabo/conective", "N0pperabo/conective"},
 		{"http://www.github.com/owner/repo/", "owner/repo"},
 		{"", ""},
 	}

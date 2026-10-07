@@ -34,6 +34,8 @@ let latestDownloadURL = '';
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   initEventListeners();
+  restorePreferences();
+  loadSettings();
   loadStatus();
   loadNodes();
   loadSources();
@@ -42,6 +44,68 @@ document.addEventListener('DOMContentLoaded', () => {
   // Poll status periodically as backup
   setInterval(loadStatus, 4000);
 });
+
+function restorePreferences() {
+  try {
+    // 1. Restore Filter Selections: filterStatus, filterProto, filterCountry, filterSort
+    const savedStatus = localStorage.getItem('filterStatus');
+    if (savedStatus !== null && filterStatus) {
+      filterStatus.value = savedStatus;
+      if (savedStatus === 'favorites') {
+        isFavoritesFilterActive = true;
+        if (tabFavorites) tabFavorites.classList.add('active');
+      }
+    }
+
+    const savedProto = localStorage.getItem('filterProto');
+    if (savedProto !== null && filterProto) {
+      filterProto.value = savedProto;
+    }
+
+    const savedCountry = localStorage.getItem('filterCountry');
+    if (savedCountry !== null && filterCountry) {
+      let opt = Array.from(filterCountry.options).find(o => o.value === savedCountry);
+      if (!opt && savedCountry !== 'all') {
+        opt = document.createElement('option');
+        opt.value = savedCountry;
+        opt.textContent = `${getFlagEmoji(savedCountry)} ${savedCountry}`;
+        filterCountry.appendChild(opt);
+      }
+      filterCountry.value = savedCountry;
+    }
+
+    const savedSort = localStorage.getItem('filterSort') || localStorage.getItem('sortBy');
+    const sortElem = document.getElementById('filterSort') || sortBy;
+    if (savedSort !== null && sortElem) {
+      sortElem.value = savedSort;
+    }
+
+    // 2. Restore Scanner Preferences (Clean IP Scanner controls)
+    ['cleanIPWorkers', 'cleanIPTimeout', 'cleanIPSampleSize', 'cleanIPPort'].forEach(id => {
+      const saved = localStorage.getItem(id);
+      const el = document.getElementById(id);
+      if (saved !== null && el) {
+        el.value = saved;
+      }
+    });
+
+    // 3. Restore Scanner Preferences (Settings modal / scanner configs)
+    ['setConcurrency', 'setTimeout', 'setEndpoint', 'setAutoScanInterval'].forEach(id => {
+      const saved = localStorage.getItem(id);
+      const el = document.getElementById(id);
+      if (saved !== null && el) {
+        el.value = saved;
+      }
+    });
+    const savedAutoScan = localStorage.getItem('setAutoScan');
+    const autoScanEl = document.getElementById('setAutoScan');
+    if (savedAutoScan !== null && autoScanEl) {
+      autoScanEl.checked = savedAutoScan === 'true';
+    }
+  } catch (err) {
+    console.warn('Failed restoring preferences from localStorage:', err);
+  }
+}
 
 function initEventListeners() {
   btnScan.addEventListener('click', startScan);
@@ -59,6 +123,7 @@ function initEventListeners() {
       } else if (filterStatus.value === 'favorites') {
         filterStatus.value = 'working';
       }
+      try { localStorage.setItem('filterStatus', filterStatus.value); } catch (e) {}
       currentPage = 1;
       loadNodes();
     });
@@ -73,12 +138,71 @@ function initEventListeners() {
       isFavoritesFilterActive = false;
       if (tabFavorites) tabFavorites.classList.remove('active');
     }
+    try { localStorage.setItem('filterStatus', filterStatus.value); } catch (e) {}
     currentPage = 1;
     loadNodes();
   });
-  filterProto.addEventListener('change', () => { currentPage = 1; loadNodes(); });
-  filterCountry.addEventListener('change', () => { currentPage = 1; loadNodes(); });
-  sortBy.addEventListener('change', () => { currentPage = 1; loadNodes(); });
+  filterProto.addEventListener('change', () => {
+    try { localStorage.setItem('filterProto', filterProto.value); } catch (e) {}
+    currentPage = 1;
+    loadNodes();
+  });
+  filterCountry.addEventListener('change', () => {
+    try { localStorage.setItem('filterCountry', filterCountry.value); } catch (e) {}
+    currentPage = 1;
+    loadNodes();
+  });
+  const sortElem = document.getElementById('filterSort') || sortBy;
+  if (sortElem) {
+    sortElem.addEventListener('change', () => {
+      try {
+        localStorage.setItem('filterSort', sortElem.value);
+        localStorage.setItem('sortBy', sortElem.value);
+      } catch (e) {}
+      currentPage = 1;
+      loadNodes();
+    });
+  }
+  if (sortBy && sortBy !== sortElem) {
+    sortBy.addEventListener('change', () => {
+      try {
+        localStorage.setItem('filterSort', sortBy.value);
+        localStorage.setItem('sortBy', sortBy.value);
+      } catch (e) {}
+      currentPage = 1;
+      loadNodes();
+    });
+  }
+
+  // Scanner preferences persistence on change
+  ['cleanIPWorkers', 'cleanIPTimeout', 'cleanIPSampleSize', 'cleanIPPort'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      const saveFn = () => {
+        try { localStorage.setItem(id, el.value); } catch (e) {}
+      };
+      el.addEventListener('change', saveFn);
+      el.addEventListener('input', saveFn);
+    }
+  });
+
+  ['setConcurrency', 'setTimeout', 'setEndpoint', 'setAutoScanInterval'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      const saveFn = () => {
+        try { localStorage.setItem(id, el.value); } catch (e) {}
+      };
+      el.addEventListener('change', saveFn);
+      el.addEventListener('input', saveFn);
+    }
+  });
+
+  const autoScanEl = document.getElementById('setAutoScan');
+  if (autoScanEl) {
+    autoScanEl.addEventListener('change', () => {
+      try { localStorage.setItem('setAutoScan', autoScanEl.checked ? 'true' : 'false'); } catch (e) {}
+    });
+  }
 
   const btnCheckUpdate = document.getElementById('btnCheckUpdate');
   if (btnCheckUpdate) btnCheckUpdate.addEventListener('click', checkForUpdates);
@@ -1020,37 +1144,63 @@ async function addSource(e) {
 
 // Settings
 async function loadSettings() {
-  const res = await fetch('/api/settings');
-  const s = await res.json();
-  document.getElementById('setConcurrency').value = s.test_concurrency;
-  document.getElementById('setTimeout').value = s.test_timeout_sec;
-  document.getElementById('setEndpoint').value = s.test_endpoint;
-  document.getElementById('setSocksPort').value = s.socks_port;
-  document.getElementById('setHttpPort').value = s.http_port;
-  const setTun = document.getElementById('setTunMode');
-  if (setTun) setTun.checked = !!s.tun_mode;
-  const setGaming = document.getElementById('setGamingMode');
-  if (setGaming) setGaming.checked = !!s.gaming_mode;
-  const setLAN = document.getElementById('setShareLAN');
-  if (setLAN) {
-    setLAN.checked = !!s.share_lan;
-    const box = document.getElementById('lanShareInfoBox');
-    if (box) {
-      box.style.display = s.share_lan ? 'block' : 'none';
-      if (s.share_lan) fetchLANInfo();
+  try {
+    const res = await fetch('/api/settings');
+    const s = await res.json();
+    if (document.getElementById('setConcurrency') && s.test_concurrency !== undefined) {
+      document.getElementById('setConcurrency').value = s.test_concurrency;
     }
-  }
-  document.getElementById('setSystemProxy').checked = s.system_proxy;
-  document.getElementById('setAutoFailover').checked = s.auto_failover;
-  document.getElementById('setAutoScan').checked = s.auto_scan;
-  document.getElementById('setAutoScanInterval').value = s.auto_scan_interval;
-  const setMinTray = document.getElementById('setMinimizeToTray');
-  if (setMinTray) setMinTray.checked = s.minimize_to_tray !== false;
-  const setStartWin = document.getElementById('setStartWithWindows');
-  if (setStartWin) setStartWin.checked = !!s.start_with_windows;
-  const updateRepoInput = document.getElementById('setUpdateRepo');
-  if (updateRepoInput && s.update_repo) {
-    updateRepoInput.value = s.update_repo;
+    if (document.getElementById('setTimeout') && s.test_timeout_sec !== undefined) {
+      document.getElementById('setTimeout').value = s.test_timeout_sec;
+    }
+    if (document.getElementById('setEndpoint') && s.test_endpoint !== undefined) {
+      document.getElementById('setEndpoint').value = s.test_endpoint;
+    }
+    if (document.getElementById('setSocksPort') && s.socks_port !== undefined) {
+      document.getElementById('setSocksPort').value = s.socks_port;
+    }
+    if (document.getElementById('setHttpPort') && s.http_port !== undefined) {
+      document.getElementById('setHttpPort').value = s.http_port;
+    }
+    const setTun = document.getElementById('setTunMode');
+    if (setTun) setTun.checked = !!s.tun_mode;
+    const setGaming = document.getElementById('setGamingMode');
+    if (setGaming) setGaming.checked = !!s.gaming_mode;
+    const setLAN = document.getElementById('setShareLAN');
+    if (setLAN) {
+      setLAN.checked = !!s.share_lan;
+      const box = document.getElementById('lanShareInfoBox');
+      if (box) {
+        box.style.display = s.share_lan ? 'block' : 'none';
+        if (s.share_lan) fetchLANInfo();
+      }
+    }
+    if (document.getElementById('setSystemProxy') && s.system_proxy !== undefined) {
+      document.getElementById('setSystemProxy').checked = s.system_proxy;
+    }
+    if (document.getElementById('setAutoFailover') && s.auto_failover !== undefined) {
+      document.getElementById('setAutoFailover').checked = s.auto_failover;
+    }
+    if (document.getElementById('setAutoScan') && s.auto_scan !== undefined) {
+      document.getElementById('setAutoScan').checked = s.auto_scan;
+    }
+    if (document.getElementById('setAutoScanInterval') && s.auto_scan_interval !== undefined) {
+      document.getElementById('setAutoScanInterval').value = s.auto_scan_interval;
+    }
+    const setMinTray = document.getElementById('setMinimizeToTray');
+    if (setMinTray && s.minimize_to_tray !== undefined) {
+      setMinTray.checked = s.minimize_to_tray !== false;
+    }
+    const setStartWin = document.getElementById('setStartWithWindows');
+    if (setStartWin && s.start_with_windows !== undefined) {
+      setStartWin.checked = !!s.start_with_windows;
+    }
+    const updateRepoInput = document.getElementById('setUpdateRepo');
+    if (updateRepoInput && s.update_repo) {
+      updateRepoInput.value = s.update_repo;
+    }
+  } catch (err) {
+    console.warn('Failed to load settings:', err);
   }
 }
 
@@ -1098,6 +1248,14 @@ async function saveSettings(e) {
   if (updateRepoInput && updateRepoInput.value.trim()) {
     body.update_repo = updateRepoInput.value.trim();
   }
+
+  try {
+    localStorage.setItem('setConcurrency', document.getElementById('setConcurrency').value);
+    localStorage.setItem('setTimeout', document.getElementById('setTimeout').value);
+    localStorage.setItem('setEndpoint', document.getElementById('setEndpoint').value.trim());
+    localStorage.setItem('setAutoScan', document.getElementById('setAutoScan').checked ? 'true' : 'false');
+    localStorage.setItem('setAutoScanInterval', document.getElementById('setAutoScanInterval').value);
+  } catch (e) {}
 
   try {
     await fetch('/api/settings', {

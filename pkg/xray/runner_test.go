@@ -119,8 +119,8 @@ func TestRunnerStopAndLifecycle(t *testing.T) {
 
 func TestTunAdapterNameFixed(t *testing.T) {
 	r := NewRunner(10808, 10809, "")
-	if r.TunAdapterName() != "FreeNodeTUN" {
-		t.Fatalf("expected fixed TUN adapter name FreeNodeTUN, got: %s", r.TunAdapterName())
+	if r.TunAdapterName() != "ConectiveTUN" {
+		t.Fatalf("expected fixed TUN adapter name ConectiveTUN, got: %s", r.TunAdapterName())
 	}
 }
 

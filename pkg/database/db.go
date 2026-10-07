@@ -205,9 +205,15 @@ func (d *DB) migrate() error {
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('block_domains', '')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('share_lan', 'false')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('gaming_mode', 'false')")
-	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('update_repo', 'connective-app/connective')")
+	_, _ = d.db.Exec("UPDATE settings SET value = 'N0pperabo/conective' WHERE key = 'update_repo' AND (value = 'connective-app/connective' OR value = '' OR value IS NULL)")
+	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('update_repo', 'N0pperabo/conective')")
 
 	return nil
+}
+
+// Init runs database migrations and seeds default values
+func (d *DB) Init() error {
+	return d.migrate()
 }
 
 // SeedDefaultSources ensures all official sources exist in DB and sets defaults
@@ -234,10 +240,6 @@ func (d *DB) SeedDefaultSources(defaults []models.Source) error {
 			return err
 		}
 	}
-
-	// Ensure freedom and v2go are enabled, and all others disabled by default
-	_, _ = d.db.Exec("UPDATE sources SET enabled = 1 WHERE name IN ('freedom', 'v2go')")
-	_, _ = d.db.Exec("UPDATE sources SET enabled = 0 WHERE name NOT IN ('freedom', 'v2go')")
 
 	return nil
 }

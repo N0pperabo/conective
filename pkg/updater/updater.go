@@ -20,7 +20,7 @@ import (
 
 const (
 	CurrentVersion = "1.0.0"
-	DefaultRepo    = "connective-app/connective"
+	DefaultRepo    = "N0pperabo/conective"
 )
 
 // ReleaseInfo holds the update check result

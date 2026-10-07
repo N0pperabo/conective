@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 // IsAdmin checks if the current process has Windows Administrator privileges
@@ -188,23 +189,183 @@ func ParseWintunDevices(output string) []string {
 	return ids
 }
 
-// CleanupStaleWintunAdapters scans for any leftover Wintun adapters (SWD\Wintun\*) created for Xray/FreeNode
-// and forcefully removes them via pnputil so Windows PnP doesn't lock or orphan them.
+// IsStaleAdapterName returns true if an adapter name represents a stale or duplicate candidate
+// such as "FreeNodeTUN*", "ConectiveTUN2", "ConectiveTUN3", etc.
+func IsStaleAdapterName(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if strings.HasPrefix(n, "freenode") {
+		return true
+	}
+	if strings.HasPrefix(n, "conectivetun") && n != "conectivetun" {
+		return true
+	}
+	return false
+}
+
+// FindAdapterInstanceID looks up the PnP Instance ID for a given network interface name from registry.
+func FindAdapterInstanceID(adapterName string) (string, error) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}`, registry.READ)
+	if err != nil {
+		return "", err
+	}
+	defer k.Close()
+
+	guids, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return "", err
+	}
+
+	for _, guid := range guids {
+		connKey, err := registry.OpenKey(k, guid+`\Connection`, registry.READ)
+		if err != nil {
+			continue
+		}
+		name, _, _ := connKey.GetStringValue("Name")
+		pnpID, _, _ := connKey.GetStringValue("PnPInstanceId")
+		connKey.Close()
+
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(adapterName)) {
+			return pnpID, nil
+		}
+	}
+	return "", fmt.Errorf("adapter %q not found in registry", adapterName)
+}
+
+// FindStaleWintunAdapters returns all PnP instance IDs for stale or duplicate adapters
+// (e.g. FreeNodeTUN*, ConectiveTUN2, ConectiveTUN3, and any duplicate ConectiveTUN instances).
+func FindStaleWintunAdapters() []string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Control\Network\{4D36E972-E325-11CE-BFC1-08002BE10318}`, registry.READ)
+	if err != nil {
+		return nil
+	}
+	defer k.Close()
+
+	guids, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return nil
+	}
+
+	var staleIDs []string
+	foundPrimary := false
+
+	for _, guid := range guids {
+		connKey, err := registry.OpenKey(k, guid+`\Connection`, registry.READ)
+		if err != nil {
+			continue
+		}
+		name, _, _ := connKey.GetStringValue("Name")
+		pnpID, _, _ := connKey.GetStringValue("PnPInstanceId")
+		connKey.Close()
+
+		pnpUpper := strings.ToUpper(strings.TrimSpace(pnpID))
+		if !strings.HasPrefix(pnpUpper, `SWD\WINTUN\`) {
+			continue
+		}
+
+		nameTrim := strings.TrimSpace(name)
+		if IsStaleAdapterName(nameTrim) {
+			staleIDs = append(staleIDs, pnpID)
+			continue
+		}
+
+		if strings.EqualFold(nameTrim, "ConectiveTUN") {
+			if foundPrimary {
+				// Duplicate ConectiveTUN adapter
+				staleIDs = append(staleIDs, pnpID)
+			} else {
+				foundPrimary = true
+			}
+		}
+	}
+
+	return staleIDs
+}
+
+// CleanupStaleWintunAdapters scans for any leftover or duplicate Wintun adapters
+// (e.g. ConectiveTUN2, ConectiveTUN3, FreeNodeTUN*) and forcefully removes them via pnputil.
+// It preserves the primary healthy "ConectiveTUN" adapter for fast static reuse.
 func CleanupStaleWintunAdapters() {
 	if !IsAdmin() {
 		return
 	}
-	cmd := silentCmd("pnputil", "/enum-devices", "/class", "Net")
-	out, err := cmd.Output()
-	if err != nil {
-		return
+
+	removed := make(map[string]bool)
+
+	// 1. Remove stale adapters identified from registry
+	for _, id := range FindStaleWintunAdapters() {
+		idUpper := strings.ToUpper(strings.TrimSpace(id))
+		if idUpper != "" && !removed[idUpper] {
+			delCmd := silentCmd("pnputil", "/remove-device", id)
+			_ = delCmd.Run()
+			removed[idUpper] = true
+		}
 	}
 
-	ids := ParseWintunDevices(string(out))
-	for _, id := range ids {
-		delCmd := silentCmd("pnputil", "/remove-device", id)
-		_ = delCmd.Run()
+	// 2. Also inspect pnputil output for any devices with FreeNode description
+	cmd := silentCmd("pnputil", "/enum-devices", "/class", "Net")
+	out, err := cmd.Output()
+	if err == nil {
+		scanner := bufio.NewScanner(strings.NewReader(string(out)))
+		var currentInstanceID string
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if strings.HasPrefix(line, "Instance ID:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					currentInstanceID = strings.TrimSpace(parts[1])
+				}
+			} else if strings.HasPrefix(line, "Device Description:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					descLower := strings.ToLower(strings.TrimSpace(parts[1]))
+					if strings.Contains(descLower, "freenode") && currentInstanceID != "" {
+						idUpper := strings.ToUpper(currentInstanceID)
+						if !removed[idUpper] {
+							delCmd := silentCmd("pnputil", "/remove-device", currentInstanceID)
+							_ = delCmd.Run()
+							removed[idUpper] = true
+						}
+					}
+				}
+				currentInstanceID = ""
+			}
+		}
 	}
+}
+
+// ResetOrRemoveAdapter forcefully removes a stuck or corrupted adapter by name using pnputil
+// so that Windows PnP cleans it up and Wintun can recreate it cleanly.
+func ResetOrRemoveAdapter(adapterName string) error {
+	if !IsAdmin() {
+		return fmt.Errorf("resetting adapter requires administrator privileges")
+	}
+
+	instanceID, err := FindAdapterInstanceID(adapterName)
+	if err == nil && instanceID != "" {
+		delCmd := silentCmd("pnputil", "/remove-device", instanceID)
+		_ = delCmd.Run()
+		time.Sleep(500 * time.Millisecond)
+		return nil
+	}
+
+	// Fallback: search pnputil for Wintun device matching Xray/Conective
+	cmd := silentCmd("pnputil", "/enum-devices", "/class", "Net")
+	out, err := cmd.Output()
+	if err == nil {
+		ids := ParseWintunDevices(string(out))
+		for _, id := range ids {
+			delCmd := silentCmd("pnputil", "/remove-device", id)
+			_ = delCmd.Run()
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return nil
+}
+
+// ResetOrRemoveAdapter is a method on Manager for convenience
+func (m *Manager) ResetOrRemoveAdapter(adapterName string) error {
+	return ResetOrRemoveAdapter(adapterName)
 }
 
 // SetupAdapter configures the Wintun adapter IP, DNS, and on-link default routing
@@ -295,26 +456,13 @@ func (m *Manager) TeardownAdapter() error {
 		m.serverIP = ""
 	}
 
-	targetAdapter := m.adapterName
-	if targetAdapter == "" {
-		targetAdapter = "ConectiveTUN"
-	}
-	_ = silentCmd("netsh", "interface", "ipv4", "set", "address", fmt.Sprintf("name=%s", targetAdapter), "source=dhcp").Run()
-	_ = silentCmd("netsh", "interface", "ipv4", "set", "dns", fmt.Sprintf("name=%s", targetAdapter), "source=dhcp").Run()
-
-	// Also reset other potential candidate adapter names
-	for _, alt := range []string{"ConectiveTUN", "ConectiveTUN2", "ConectiveTUN3", "FreeNodeTUN", "FreeNodeTUN2"} {
-		if alt != targetAdapter {
-			_ = silentCmd("netsh", "interface", "ipv4", "set", "address", fmt.Sprintf("name=%s", alt), "source=dhcp").Run()
-			_ = silentCmd("netsh", "interface", "ipv4", "set", "dns", fmt.Sprintf("name=%s", alt), "source=dhcp").Run()
-		}
-	}
-
 	m.adapterName = ""
 	m.active = false
 	// Do NOT call CleanupStaleWintunAdapters() on normal teardown!
 	// Leaving the static adapter installed allows instant reuse on subsequent connections
 	// without PnP teardown latency or Windows ERROR_FILE_EXISTS errors.
+	// Leaving the static IP address (198.18.0.2 / 255.255.0.0) alone without DHCP
+	// avoids Windows 10-30s "Identifying..." DHCP lease timeouts.
 	return nil
 }
 

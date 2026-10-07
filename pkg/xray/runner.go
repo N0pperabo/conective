@@ -98,7 +98,7 @@ func NewRunner(socksPort, httpPort int, testEndpoint string) *Runner {
 		testEndpoint:  testEndpoint,
 		tunMgr:            tun.NewManager(),
 		psiphonRunner:     psiphon.NewRunner(),
-		currentTunAdapter: "FreeNodeTUN",
+		currentTunAdapter: "ConectiveTUN",
 	}
 	r.tunMgr.RecoverOrphanedTUNRoutes()
 	return r
@@ -124,10 +124,7 @@ func (r *Runner) GetTunMode() bool {
 func (r *Runner) TunAdapterName() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.currentTunAdapter != "" {
-		return r.currentTunAdapter
-	}
-	return "FreeNodeTUN"
+	return "ConectiveTUN"
 }
 
 func (r *Runner) IsRunning() bool {
@@ -262,9 +259,6 @@ func (r *Runner) Connect(node *models.Config) error {
 	}
 	tunEnabled := r.tunMode
 	tunAdapterName := "ConectiveTUN"
-	if r.currentTunAdapter != "" {
-		tunAdapterName = r.currentTunAdapter
-	}
 
 	// Reset ports to configured base values to prevent port drifting across connections
 	preferredSocks := r.baseSocksPort
@@ -443,16 +437,6 @@ func (r *Runner) Connect(node *models.Config) error {
 
 	var instance *xcore.Instance
 	var lastErr error
-	tunAdapterCandidates := []string{"ConectiveTUN", "ConectiveTUN2", "ConectiveTUN3"}
-	candidateIdx := 0
-	if r.currentTunAdapter != "" {
-		for i, cand := range tunAdapterCandidates {
-			if cand == r.currentTunAdapter {
-				candidateIdx = i
-				break
-			}
-		}
-	}
 
 	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
@@ -461,30 +445,14 @@ func (r *Runner) Connect(node *models.Config) error {
 			r.socksPort = ensureAvailablePort(r.socksPort+1, 20800+attempt*10)
 			inbounds[0]["port"] = r.socksPort
 			inbounds[1]["port"] = r.httpPort
+			configMap["inbounds"] = inbounds
 
-			// If TUN mode is enabled, rotate adapter candidate name to bypass any lingering PnP lock
+			// If TUN mode is enabled and a previous attempt failed, reset or remove the corrupted/stuck ConectiveTUN adapter
 			if tunEnabled {
-				candidateIdx = (candidateIdx + 1) % len(tunAdapterCandidates)
-				tunAdapterName = tunAdapterCandidates[candidateIdx]
-				for _, inb := range inbounds {
-					if inb["tag"] == "tun-in" {
-						if st, ok := inb["settings"].(v2go.M); ok {
-							st["name"] = tunAdapterName
-						}
-					}
-				}
+				log.Printf("[Runner] Previous TUN start attempt failed; resetting/removing stuck %s adapter before retry...", tunAdapterName)
+				_ = tun.ResetOrRemoveAdapter(tunAdapterName)
+				time.Sleep(500 * time.Millisecond)
 			}
-			configMap["inbounds"] = inbounds
-		} else if tunEnabled {
-			tunAdapterName = tunAdapterCandidates[candidateIdx]
-			for _, inb := range inbounds {
-				if inb["tag"] == "tun-in" {
-					if st, ok := inb["settings"].(v2go.M); ok {
-						st["name"] = tunAdapterName
-					}
-				}
-			}
-			configMap["inbounds"] = inbounds
 		}
 
 		jsonBytes, err := json.Marshal(configMap)
@@ -501,7 +469,8 @@ func (r *Runner) Connect(node *models.Config) error {
 		if err != nil {
 			lastErr = err
 			if tunEnabled {
-				log.Printf("[Runner] xcore.New attempt %d with adapter %s failed: %v, rotating adapter...", attempt+1, tunAdapterName, err)
+				log.Printf("[Runner] xcore.New attempt %d with adapter %s failed: %v, resetting/removing adapter...", attempt+1, tunAdapterName, err)
+				_ = tun.ResetOrRemoveAdapter(tunAdapterName)
 				time.Sleep(500 * time.Millisecond) // Let Windows PnP release adapter handles
 				continue
 			}
@@ -520,6 +489,10 @@ func (r *Runner) Connect(node *models.Config) error {
 		}
 		_ = instance.Close()
 		lastErr = startErr
+		if tunEnabled {
+			log.Printf("[Runner] instance.Start attempt %d with adapter %s failed: %v, resetting/removing adapter...", attempt+1, tunAdapterName, startErr)
+			_ = tun.ResetOrRemoveAdapter(tunAdapterName)
+		}
 		time.Sleep(500 * time.Millisecond) // Let Windows release sockets/adapters before retry
 	}
 	if lastErr != nil {
@@ -535,6 +508,7 @@ func (r *Runner) Connect(node *models.Config) error {
 	if tunEnabled {
 		if err := r.tunMgr.SetupAdapter(tunAdapterName, node.Server); err != nil {
 			_ = instance.Close()
+			_ = tun.ResetOrRemoveAdapter(tunAdapterName)
 			return fmt.Errorf("failed setting up TUN routes: %w", err)
 		}
 	}

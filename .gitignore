@@ -32,3 +32,8 @@ cmd/installer/bin/
 cmd/installer/*.exe
 cmd/installer/*.mmdb
 cmd/installer/*.dll
+
+# Temporary files & shortcuts
+*.lnk
+*~
+aether.toml-psiphon/

@@ -185,3 +185,37 @@ func TestCleanupStaleWintunAdapters(t *testing.T) {
 	// Should execute safely without panic even in non-elevated testing environment
 	CleanupStaleWintunAdapters()
 }
+
+func TestIsStaleAdapterName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"Single canonical name", "ConectiveTUN", false},
+		{"Lowercase canonical name", "conectivetun", false},
+		{"Numbered candidate 2", "ConectiveTUN2", true},
+		{"Numbered candidate 3", "ConectiveTUN3", true},
+		{"Candidate with space", "ConectiveTUN 2", true},
+		{"Legacy FreeNode name", "FreeNodeTUN", true},
+		{"Legacy FreeNode numbered", "FreeNodeTUN2", true},
+		{"Arbitrary freenode prefix", "freenode_adapter", true},
+		{"Physical Wi-Fi interface", "Wi-Fi", false},
+		{"Physical Ethernet interface", "Ethernet", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsStaleAdapterName(tc.input)
+			if got != tc.expected {
+				t.Errorf("IsStaleAdapterName(%q) = %v; want %v", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestResetOrRemoveAdapterSafe(t *testing.T) {
+	// Calling ResetOrRemoveAdapter for non-existent adapter should execute safely
+	_ = ResetOrRemoveAdapter("NonExistentAdapter")
+}
+
