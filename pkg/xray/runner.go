@@ -218,7 +218,26 @@ func (r *Runner) Connect(node *models.Config) error {
 			_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
 		}
 
-		if err := r.psiphonRunner.Start(node.Server, r.socksPort, r.httpPort); err != nil {
+		sni := node.SNI
+		cdnSet := ""
+		if strings.Contains(strings.ToLower(node.Tags), "akamai") || strings.Contains(strings.ToLower(node.Source), "akamai") || strings.HasSuffix(sni, "akamai.net") {
+			if sni == "" {
+				sni = "a248.e.akamai.net"
+			}
+			cdnSet = "psiphon-akamai"
+		} else if strings.Contains(strings.ToLower(node.Tags), "cloudfront") || strings.Contains(strings.ToLower(node.Source), "cloudfront") || strings.HasSuffix(sni, "cloudfront.net") {
+			if sni == "" {
+				sni = "d1.cloudfront.net"
+			}
+			cdnSet = "cloudfront"
+		} else if strings.Contains(strings.ToLower(node.Tags), "cloudflare") || strings.Contains(strings.ToLower(node.Source), "cloudflare") || strings.HasSuffix(sni, "cloudflare.com") {
+			if sni == "" {
+				sni = "cloudflare.com"
+			}
+			cdnSet = "cloudflare"
+		}
+
+		if err := r.psiphonRunner.StartWithSNI(node.Server, sni, cdnSet, r.socksPort, r.httpPort); err != nil {
 			return fmt.Errorf("starting psiphon tunnel: %w", err)
 		}
 

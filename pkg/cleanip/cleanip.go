@@ -23,6 +23,73 @@ import (
 	"freenode/pkg/v2go"
 )
 
+// Official Akamai Edge ranges tested for ShirOKhorshid & Psiphon CDN fronting
+var AkamaiCIDRs = []string{
+	"23.209.210.0/24",  // Akamai Edge (Psiphon Fronting - Primary)
+	"23.213.161.0/24",  // Akamai Edge (Psiphon Fronting - Primary)
+	"23.207.210.0/24",  // Akamai Edge
+	"184.24.77.0/24",   // Akamai Edge
+	"92.123.102.0/24",  // Akamai Edge Europe
+	"2.16.10.0/24",     // Akamai Edge Europe
+	"2.22.250.0/24",    // Akamai Edge Global
+	"23.58.193.0/24",   // Akamai Edge Global
+	"23.48.23.0/24",    // Akamai Edge Global
+	"23.43.237.0/24",   // Akamai Edge Global
+	"104.112.146.0/24", // Akamai Edge
+	"72.246.28.0/24",   // Akamai Edge
+	"185.200.232.0/24", // Akamai Edge
+	"23.202.138.0/24",  // Akamai Edge
+	"72.18.63.0/24",    // Akamai Edge
+	"92.16.53.0/24",    // Akamai Edge
+	"92.16.19.0/24",    // Akamai Edge
+	"185.143.232.0/24", // Akamai Edge
+	"2.19.126.0/24",    // Akamai Edge
+	"23.2.13.0/24",     // Akamai Edge
+}
+
+// Amazon CloudFront ranges for CDN Fronting
+var CloudFrontCIDRs = []string{
+	"13.32.0.0/16",
+	"13.224.0.0/16",
+	"13.249.0.0/16",
+	"54.192.0.0/16",
+	"54.230.0.0/16",
+	"52.84.0.0/16",
+	"99.84.0.0/16",
+	"99.86.0.0/16",
+	"143.204.0.0/16",
+}
+
+// Fastly edge ranges
+var FastlyCIDRs = []string{
+	"151.101.65.0/24",
+	"151.101.1.0/24",
+	"151.101.129.0/24",
+	"151.101.193.0/24",
+	"199.232.0.0/16",
+}
+
+// ShirOKhorshidCuratedIPs are proven pre-tested IPs for ShirOKhorshid / Psiphon CDN fronting
+var ShirOKhorshidCuratedIPs = []string{
+	"23.209.210.213",
+	"23.213.161.22",
+	"23.207.210.81",
+	"184.24.77.42",
+	"92.123.102.43",
+	"2.22.250.149",
+	"23.58.193.140",
+	"23.48.23.151",
+	"23.48.23.186",
+	"23.48.23.133",
+	"104.112.146.82",
+	"72.246.28.3",
+	"185.200.232.49",
+	"185.200.232.50",
+	"185.200.232.42",
+	"23.202.138.125",
+	"2.19.126.81",
+}
+
 // Official CDN IPv4 CIDR blocks commonly used for circumvention fronting (Cloudflare, Akamai, Fastly)
 var IranCloudflareCIDRs = []string{
 	"162.159.192.0/24", // Primary Cloudflare WARP Anycast edge pool
@@ -98,11 +165,13 @@ var CuratedEdgeIPs = []string{
 	"162.159.195.10",
 }
 
-// IPResult represents a tested Cloudflare clean IP
+// IPResult represents a tested CDN clean IP
 type IPResult struct {
 	IP          string    `json:"ip"`
 	Latency     int       `json:"latency"` // ms (-1 if unreachable)
 	Subnet      string    `json:"subnet"`
+	CDN         string    `json:"cdn"`     // "Akamai", "CloudFront", "Cloudflare", "Fastly"
+	SNI         string    `json:"sni"`     // e.g. "a248.e.akamai.net", "d1.cloudfront.net"
 	Country     string    `json:"country,omitempty"`
 	CountryName string    `json:"country_name,omitempty"`
 	CheckedAt   time.Time `json:"checked_at"`
@@ -115,7 +184,9 @@ type ScanOptions struct {
 	SampleSize  int      `json:"sample_size"`  // default: 300
 	CustomCIDRs []string `json:"custom_cidrs"` // optional custom CIDRs
 	Port        int      `json:"port"`         // default: 443
+	CDNTarget   string   `json:"cdn_target"`   // "akamai" (default), "cloudfront", "all", "cloudflare"
 }
+
 
 // Progress tracks the live state of a Clean IP scan
 type Progress struct {
@@ -178,7 +249,84 @@ func (m *Manager) SetGeoResolver(geo *geoip.Resolver) {
 	SetDefaultGeoResolver(geo)
 }
 
-// StartScan begins a concurrent scan of Cloudflare IPs
+// DetectCDN identifies the CDN provider, the required SNI, and the Psiphon CDN set name for an IP
+func DetectCDN(ip string) (cdnName, sni, cdnSet string) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+	}
+
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+	}
+
+	// 1. Check ShirOKhorshid / Akamai curated IPs
+	for _, cur := range ShirOKhorshidCuratedIPs {
+		if ip == cur {
+			return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+		}
+	}
+
+	// 2. Check Akamai CIDRs
+	for _, cidr := range AkamaiCIDRs {
+		_, ipnet, err := net.ParseCIDR(cidr)
+		if err == nil && ipnet.Contains(parsed) {
+			return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+		}
+	}
+
+	// 3. Check CloudFront CIDRs
+	for _, cidr := range CloudFrontCIDRs {
+		_, ipnet, err := net.ParseCIDR(cidr)
+		if err == nil && ipnet.Contains(parsed) {
+			return "CloudFront", "d1.cloudfront.net", "cloudfront"
+		}
+	}
+
+	// 4. Check Fastly CIDRs
+	for _, cidr := range FastlyCIDRs {
+		_, ipnet, err := net.ParseCIDR(cidr)
+		if err == nil && ipnet.Contains(parsed) {
+			return "Fastly", "", "fastly"
+		}
+	}
+
+	// 5. Check Cloudflare curated & CIDRs
+	for _, cur := range CuratedEdgeIPs {
+		if ip == cur {
+			return "Cloudflare", "cloudflare.com", "cloudflare"
+		}
+	}
+	for _, cidr := range IranCloudflareCIDRs {
+		_, ipnet, err := net.ParseCIDR(cidr)
+		if err == nil && ipnet.Contains(parsed) {
+			return "Cloudflare", "cloudflare.com", "cloudflare"
+		}
+	}
+	for _, cidr := range AllCloudflareCIDRs {
+		_, ipnet, err := net.ParseCIDR(cidr)
+		if err == nil && ipnet.Contains(parsed) {
+			return "Cloudflare", "cloudflare.com", "cloudflare"
+		}
+	}
+
+	// Heuristic / prefix checks
+	if strings.HasPrefix(ip, "23.") || strings.HasPrefix(ip, "184.24.") || strings.HasPrefix(ip, "92.123.") || strings.HasPrefix(ip, "2.16.") || strings.HasPrefix(ip, "2.22.") || strings.HasPrefix(ip, "104.112.") || strings.HasPrefix(ip, "72.246.") || strings.HasPrefix(ip, "185.200.") || strings.HasPrefix(ip, "185.143.") || strings.HasPrefix(ip, "2.19.") || strings.HasPrefix(ip, "72.18.") {
+		return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+	}
+	if strings.HasPrefix(ip, "13.") || strings.HasPrefix(ip, "54.") || strings.HasPrefix(ip, "52.") || strings.HasPrefix(ip, "99.") || strings.HasPrefix(ip, "143.204.") {
+		return "CloudFront", "d1.cloudfront.net", "cloudfront"
+	}
+	if strings.HasPrefix(ip, "162.159.") || strings.HasPrefix(ip, "188.114.") || strings.HasPrefix(ip, "104.16.") || strings.HasPrefix(ip, "104.24.") || strings.HasPrefix(ip, "172.64.") || strings.HasPrefix(ip, "198.41.") {
+		return "Cloudflare", "cloudflare.com", "cloudflare"
+	}
+
+	// Default fallback to Akamai (ShirOKhorshid default)
+	return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+}
+
+// StartScan begins a concurrent scan of CDN IPs
 func (m *Manager) StartScan(opts ScanOptions) error {
 	m.mu.Lock()
 	if m.isScanning {
@@ -199,19 +347,25 @@ func (m *Manager) StartScan(opts ScanOptions) error {
 		opts.Port = 443
 	}
 
-	cidrs := opts.CustomCIDRs
-	if len(cidrs) == 0 {
-		if opts.SampleSize > 500 {
-			cidrs = AllCloudflareCIDRs
-		} else {
-			cidrs = IranCloudflareCIDRs
-		}
+	target := opts.CDNTarget
+	if target == "" {
+		target = "akamai"
 	}
 
-	candidates := GenerateCandidateIPs(cidrs, opts.SampleSize)
+	candidates := GenerateCandidateIPsForTarget(target, opts.CustomCIDRs, opts.SampleSize)
 	if len(candidates) == 0 {
 		m.mu.Unlock()
 		return fmt.Errorf("no valid IP candidates generated from CIDRs")
+	}
+
+	targetLabel := "Akamai / ShirOKhorshid"
+	switch strings.ToLower(target) {
+	case "cloudfront":
+		targetLabel = "Amazon CloudFront"
+	case "cloudflare":
+		targetLabel = "Cloudflare"
+	case "all":
+		targetLabel = "All CDNs"
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -225,7 +379,7 @@ func (m *Manager) StartScan(opts ScanOptions) error {
 		WorkingIPs:  0,
 		ProgressPct: 0,
 		BestLatency: 0,
-		Message:     fmt.Sprintf("Testing %d Cloudflare edge IPs with %d workers...", len(candidates), opts.Workers),
+		Message:     fmt.Sprintf("Testing %d %s edge IPs with %d workers...", len(candidates), targetLabel, opts.Workers),
 	}
 	m.mu.Unlock()
 
@@ -317,14 +471,18 @@ func (m *Manager) runScan(ctx context.Context, candidates []candidateInfo, opts 
 						return
 					}
 
-					lat, err := TestIP(ctx, c.IP, opts.Port, timeout)
+					lat, err := TestIPWithSNI(ctx, c.IP, opts.Port, c.SNI, timeout)
 					tested := int(atomic.AddInt32(&testedCount, 1))
 
 					if err == nil && lat > 0 {
 						atomic.AddInt32(&workingCount, 1)
 
-						countryCode := "CF"
-						countryName := "Cloudflare Anycast"
+						countryCode := "US"
+						countryName := c.CDN + " Edge"
+						if c.CDN == "Cloudflare" {
+							countryCode = "CF"
+							countryName = "Cloudflare Anycast"
+						}
 						m.mu.RLock()
 						geo := m.geo
 						m.mu.RUnlock()
@@ -343,6 +501,8 @@ func (m *Manager) runScan(ctx context.Context, candidates []candidateInfo, opts 
 							IP:          c.IP,
 							Latency:     lat,
 							Subnet:      c.Subnet,
+							CDN:         c.CDN,
+							SNI:         c.SNI,
 							Country:     countryCode,
 							CountryName: countryName,
 							CheckedAt:   time.Now(),
@@ -382,53 +542,35 @@ func (m *Manager) runScan(ctx context.Context, candidates []candidateInfo, opts 
 	wg.Wait()
 }
 
-// candidateInfo couples an IP with its parent CIDR subnet
+// candidateInfo couples an IP with its parent CIDR subnet and CDN settings
 type candidateInfo struct {
 	IP     string
 	Subnet string
+	CDN    string
+	SNI    string
+	CDNSet string
 }
 
-// GenerateCandidateIPs creates a distributed, balanced pool of Cloudflare IPs from CIDRs
-func GenerateCandidateIPs(cidrs []string, sampleSize int) []candidateInfo {
-	if sampleSize <= 0 {
-		sampleSize = 500
-	}
-	if len(cidrs) == 0 {
-		// Use all official worldwide Cloudflare CIDRs so candidates come from diverse regions
-		cidrs = AllCloudflareCIDRs
-	}
-
+func sampleCIDRs(cidrs []string, count int, seen map[string]bool, cdnName, sni, cdnSet, subnetPrefix string, rng *rand.Rand) []candidateInfo {
 	var candidates []candidateInfo
-	seen := make(map[string]bool)
-
-	// 1. Add curated high-performing IPs
-	for _, ip := range CuratedEdgeIPs {
-		if !seen[ip] {
-			seen[ip] = true
-			candidates = append(candidates, candidateInfo{IP: ip, Subnet: "Europe / Anycast Edge"})
-		}
+	if len(cidrs) == 0 || count <= 0 {
+		return candidates
 	}
-
-	// 2. Sample proportionally from each CIDR
-	samplesPerCIDR := (sampleSize - len(candidates)) / len(cidrs)
-	if samplesPerCIDR < 10 {
-		samplesPerCIDR = 10
+	samplesPerCIDR := count / len(cidrs)
+	if samplesPerCIDR < 2 {
+		samplesPerCIDR = 2
 	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for _, cidr := range cidrs {
 		_, ipnet, err := net.ParseCIDR(cidr)
 		if err != nil {
 			continue
 		}
-
 		baseIP := ipnet.IP.To4()
 		if baseIP == nil {
 			continue
 		}
 		baseUint := binary.BigEndian.Uint32(baseIP)
-
 		maskOnes, _ := ipnet.Mask.Size()
 		hostCount := uint32(1) << (32 - maskOnes)
 		if hostCount <= 2 {
@@ -441,7 +583,6 @@ func GenerateCandidateIPs(cidrs []string, sampleSize int) []candidateInfo {
 		}
 
 		for i := 0; i < samplesPerCIDR; i++ {
-			// Offset evenly with a pseudo-random jitter within each bucket
 			jitter := uint32(0)
 			if step > 2 {
 				jitter = uint32(rng.Intn(int(step - 1)))
@@ -458,12 +599,120 @@ func GenerateCandidateIPs(cidrs []string, sampleSize int) []candidateInfo {
 
 			if !seen[ipStr] {
 				seen[ipStr] = true
+				label := subnetPrefix
+				if label == "" {
+					label = getSubnetLabel(cidr)
+				}
 				candidates = append(candidates, candidateInfo{
 					IP:     ipStr,
-					Subnet: getSubnetLabel(cidr),
+					Subnet: label,
+					CDN:    cdnName,
+					SNI:    sni,
+					CDNSet: cdnSet,
 				})
 			}
 		}
+	}
+	return candidates
+}
+
+// GenerateCandidateIPsForTarget generates candidate IPs tailored to the specified CDN target
+func GenerateCandidateIPsForTarget(target string, customCIDRs []string, sampleSize int) []candidateInfo {
+	if sampleSize <= 0 {
+		sampleSize = 300
+	}
+	target = strings.ToLower(strings.TrimSpace(target))
+	if target == "" {
+		target = "akamai"
+	}
+
+	var candidates []candidateInfo
+	seen := make(map[string]bool)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	if len(customCIDRs) > 0 {
+		for _, cidr := range customCIDRs {
+			cName, cSni, cSet := DetectCDN(strings.Split(cidr, "/")[0])
+			sampled := sampleCIDRs([]string{cidr}, sampleSize, seen, cName, cSni, cSet, cName+" Edge", rng)
+			candidates = append(candidates, sampled...)
+		}
+		if len(candidates) > sampleSize {
+			candidates = candidates[:sampleSize]
+		}
+		return candidates
+	}
+
+	switch target {
+	case "akamai":
+		// 1. Proven curated IPs from ShirOKhorshid
+		for _, ip := range ShirOKhorshidCuratedIPs {
+			if !seen[ip] {
+				seen[ip] = true
+				candidates = append(candidates, candidateInfo{
+					IP:     ip,
+					Subnet: "ShirOKhorshid / Akamai Edge",
+					CDN:    "Akamai",
+					SNI:    "a248.e.akamai.net",
+					CDNSet: "psiphon-akamai",
+				})
+			}
+		}
+		// 2. Sample from Akamai CIDRs
+		rem := sampleSize - len(candidates)
+		if rem > 0 {
+			sampled := sampleCIDRs(AkamaiCIDRs, rem, seen, "Akamai", "a248.e.akamai.net", "psiphon-akamai", "Akamai Edge", rng)
+			candidates = append(candidates, sampled...)
+		}
+
+	case "cloudfront":
+		sampled := sampleCIDRs(CloudFrontCIDRs, sampleSize, seen, "CloudFront", "d1.cloudfront.net", "cloudfront", "Amazon CloudFront Edge", rng)
+		candidates = append(candidates, sampled...)
+
+	case "cloudflare":
+		// 1. Curated Cloudflare edge IPs
+		for _, ip := range CuratedEdgeIPs {
+			if !seen[ip] {
+				seen[ip] = true
+				candidates = append(candidates, candidateInfo{
+					IP:     ip,
+					Subnet: "Europe / Anycast Edge",
+					CDN:    "Cloudflare",
+					SNI:    "cloudflare.com",
+					CDNSet: "cloudflare",
+				})
+			}
+		}
+		// 2. Sample from Cloudflare CIDRs
+		cidrs := IranCloudflareCIDRs
+		if sampleSize > 500 {
+			cidrs = AllCloudflareCIDRs
+		}
+		rem := sampleSize - len(candidates)
+		if rem > 0 {
+			sampled := sampleCIDRs(cidrs, rem, seen, "Cloudflare", "cloudflare.com", "cloudflare", "Cloudflare Anycast", rng)
+			candidates = append(candidates, sampled...)
+		}
+
+	case "all":
+		// Mix Akamai (50%), CloudFront (25%), Cloudflare (25%)
+		for _, ip := range ShirOKhorshidCuratedIPs {
+			if !seen[ip] {
+				seen[ip] = true
+				candidates = append(candidates, candidateInfo{
+					IP:     ip,
+					Subnet: "ShirOKhorshid / Akamai Edge",
+					CDN:    "Akamai",
+					SNI:    "a248.e.akamai.net",
+					CDNSet: "psiphon-akamai",
+				})
+			}
+		}
+		akamaiCount := sampleSize / 2
+		cfCount := sampleSize / 4
+		cfrontCount := sampleSize - akamaiCount - cfCount
+		candidates = append(candidates, sampleCIDRs(AkamaiCIDRs, akamaiCount, seen, "Akamai", "a248.e.akamai.net", "psiphon-akamai", "Akamai Edge", rng)...)
+		candidates = append(candidates, sampleCIDRs(CloudFrontCIDRs, cfrontCount, seen, "CloudFront", "d1.cloudfront.net", "cloudfront", "Amazon CloudFront Edge", rng)...)
+		candidates = append(candidates, sampleCIDRs(IranCloudflareCIDRs, cfCount, seen, "Cloudflare", "cloudflare.com", "cloudflare", "Cloudflare Anycast", rng)...)
 	}
 
 	// Shuffle candidate order so workers test across diverse CIDRs simultaneously
@@ -478,11 +727,21 @@ func GenerateCandidateIPs(cidrs []string, sampleSize int) []candidateInfo {
 	return candidates
 }
 
-// TestIP performs a TCP connect followed by a TLS handshake to the specified port (typically 443).
-// This verifies both route reachability and DPI unblocked status on Iranian networks.
-func TestIP(ctx context.Context, ip string, port int, timeout time.Duration) (int, error) {
+// GenerateCandidateIPs creates a distributed, balanced pool of IPs from CIDRs
+func GenerateCandidateIPs(cidrs []string, sampleSize int) []candidateInfo {
+	if len(cidrs) > 0 {
+		return GenerateCandidateIPsForTarget("custom", cidrs, sampleSize)
+	}
+	return GenerateCandidateIPsForTarget("akamai", nil, sampleSize)
+}
+
+// TestIPWithSNI performs a TCP connect followed by a TLS handshake with the specified SNI.
+func TestIPWithSNI(ctx context.Context, ip string, port int, sni string, timeout time.Duration) (int, error) {
 	if port <= 0 {
 		port = 443
+	}
+	if sni == "" {
+		sni = "a248.e.akamai.net"
 	}
 
 	addr := net.JoinHostPort(ip, strconv.Itoa(port))
@@ -499,9 +758,9 @@ func TestIP(ctx context.Context, ip string, port int, timeout time.Duration) (in
 	}
 	defer rawConn.Close()
 
-	// 2. TLS Handshake (ServerName cloudflare.com is accepted by all Cloudflare edge IPs)
+	// 2. TLS Handshake with designated CDN SNI
 	tlsConfig := &tls.Config{
-		ServerName:         "cloudflare.com",
+		ServerName:         sni,
 		InsecureSkipVerify: true,
 	}
 
@@ -518,6 +777,12 @@ func TestIP(ctx context.Context, ip string, port int, timeout time.Duration) (in
 	}
 
 	return latency, nil
+}
+
+// TestIP tests an IP using its auto-detected CDN SNI.
+func TestIP(ctx context.Context, ip string, port int, timeout time.Duration) (int, error) {
+	_, sni, _ := DetectCDN(ip)
+	return TestIPWithSNI(ctx, ip, port, sni, timeout)
 }
 
 // ApplyCleanIP updates the node's server address to the clean IP while preserving
@@ -682,7 +947,7 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 	cleanIP = strings.TrimSpace(cleanIP)
 	parsedIP := net.ParseIP(cleanIP)
 	if parsedIP == nil || parsedIP.To4() == nil {
-		cleanIP = "188.114.96.1"
+		cleanIP = "23.209.210.213"
 	} else {
 		cleanIP = parsedIP.String()
 	}
@@ -691,13 +956,19 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 		latency = 120
 	}
 
+	cdnName, sni, _ := DetectCDN(cleanIP)
+
 	nodeName := customName
 	if nodeName == "" {
-		nodeName = fmt.Sprintf("⚡ Clean IP | %s", cleanIP)
+		nodeName = fmt.Sprintf("⚡ %s CDN | %s", cdnName, cleanIP)
 	}
 
 	countryCode := "CF"
 	countryName := "Cloudflare Anycast"
+	if cdnName == "CloudFront" {
+		countryCode = "US"
+		countryName = "Amazon CloudFront"
+	}
 	if geo := GetDefaultGeoResolver(); geo != nil {
 		g := geo.Lookup(cleanIP)
 		if g.Code != "" && g.Code != "UN" {
@@ -712,20 +983,21 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 		Protocol:    "psiphon",
 		Server:      cleanIP,
 		Port:        443,
+		SNI:         sni,
 		Transport:   "fronted-meek",
 		TLS:         "tls",
 		Country:     countryCode,
 		CountryName: countryName,
-		Source:      "Clean IP Fronting",
+		Source:      fmt.Sprintf("%s Fronting", cdnName),
 		Latency:     latency,
 		Status:      "working",
 		Score:       1000,
 		IsFavorite:  false,
-		Tags:        "CDN IP,clean-ip,psiphon,cdn-fronting",
+		Tags:        fmt.Sprintf("CDN IP,%s,clean-ip,psiphon,cdn-fronting", strings.ToLower(cdnName)),
 		FirstSeen:   time.Now(),
 		LastSeen:    time.Now(),
 		LastTested:  time.Now(),
-		RawLink:     fmt.Sprintf("psiphon://%s:443?fronting=cdn#Clean-IP-%s", cleanIP, cleanIP),
+		RawLink:     fmt.Sprintf("psiphon://%s:443?fronting=cdn&sni=%s#%s-CDN-%s", cleanIP, sni, cdnName, cleanIP),
 	}
 
 	if db != nil {

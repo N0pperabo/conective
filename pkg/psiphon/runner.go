@@ -95,8 +95,35 @@ func FindBinaries() (aetherPath, psiphonPath string, err error) {
 	return aetherPath, psiphonPath, nil
 }
 
+func detectIPDefaults(ip string) (sni, cdnSet string) {
+	// Akamai ranges / ShirOKhorshid
+	if strings.HasPrefix(ip, "23.") || strings.HasPrefix(ip, "184.24.") || strings.HasPrefix(ip, "92.123.") ||
+		strings.HasPrefix(ip, "2.16.") || strings.HasPrefix(ip, "2.22.") || strings.HasPrefix(ip, "104.112.") ||
+		strings.HasPrefix(ip, "72.246.") || strings.HasPrefix(ip, "185.200.") || strings.HasPrefix(ip, "185.143.") ||
+		strings.HasPrefix(ip, "2.19.") || strings.HasPrefix(ip, "72.18.") {
+		return "a248.e.akamai.net", "psiphon-akamai"
+	}
+	// Amazon CloudFront
+	if strings.HasPrefix(ip, "13.") || strings.HasPrefix(ip, "54.") || strings.HasPrefix(ip, "52.") ||
+		strings.HasPrefix(ip, "99.") || strings.HasPrefix(ip, "143.204.") {
+		return "d1.cloudfront.net", "cloudfront"
+	}
+	// Cloudflare
+	if strings.HasPrefix(ip, "162.159.") || strings.HasPrefix(ip, "188.114.") || strings.HasPrefix(ip, "104.16.") ||
+		strings.HasPrefix(ip, "104.24.") || strings.HasPrefix(ip, "172.64.") || strings.HasPrefix(ip, "198.41.") {
+		return "cloudflare.com", "cloudflare"
+	}
+	// Default to Akamai (ShirOKhorshid default)
+	return "a248.e.akamai.net", "psiphon-akamai"
+}
+
 // Start launches Aether in Psiphon-only mode with the selected Clean CDN IP
 func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
+	return r.StartWithSNI(cleanIP, "", "", socksPort, httpPort)
+}
+
+// StartWithSNI launches Aether in Psiphon-only mode with the selected Clean CDN IP, custom SNI and CDN set
+func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -129,6 +156,23 @@ func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
 
 	if r.cleanIP != "" && r.cleanIP != "auto" {
 		args = append(args, "--psiphon-cdn-ips", r.cleanIP)
+
+		if sni == "" || cdnSet == "" {
+			detSNI, detSet := detectIPDefaults(r.cleanIP)
+			if sni == "" {
+				sni = detSNI
+			}
+			if cdnSet == "" {
+				cdnSet = detSet
+			}
+		}
+
+		if sni != "" {
+			args = append(args, "--psiphon-cdn-sni", sni)
+		}
+		if cdnSet != "" {
+			args = append(args, "--psiphon-cdn-sets", cdnSet)
+		}
 	}
 
 	cmd := exec.Command(aetherBin, args...)

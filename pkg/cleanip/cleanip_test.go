@@ -501,4 +501,82 @@ func TestManager_GetProgress_NoLimitClamp(t *testing.T) {
 	}
 }
 
+func TestDetectCDN(t *testing.T) {
+	// 1. Akamai curated
+	cdn, sni, set := DetectCDN("23.209.210.213")
+	if cdn != "Akamai" || sni != "a248.e.akamai.net" || set != "psiphon-akamai" {
+		t.Errorf("expected Akamai, got %s, %s, %s", cdn, sni, set)
+	}
+
+	// 2. CloudFront
+	cdn, sni, set = DetectCDN("13.32.10.5")
+	if cdn != "CloudFront" || sni != "d1.cloudfront.net" || set != "cloudfront" {
+		t.Errorf("expected CloudFront, got %s, %s, %s", cdn, sni, set)
+	}
+
+	// 3. Cloudflare
+	cdn, sni, set = DetectCDN("188.114.96.1")
+	if cdn != "Cloudflare" || sni != "cloudflare.com" || set != "cloudflare" {
+		t.Errorf("expected Cloudflare, got %s, %s, %s", cdn, sni, set)
+	}
+
+	// 4. Default fallback
+	cdn, sni, set = DetectCDN("1.2.3.4")
+	if cdn != "Akamai" || sni != "a248.e.akamai.net" || set != "psiphon-akamai" {
+		t.Errorf("expected default Akamai, got %s, %s, %s", cdn, sni, set)
+	}
+}
+
+func TestGenerateCandidateIPsForTarget(t *testing.T) {
+	// Akamai
+	akamaiCandidates := GenerateCandidateIPsForTarget("akamai", nil, 20)
+	if len(akamaiCandidates) == 0 {
+		t.Fatalf("expected akamai candidates, got 0")
+	}
+	hasCurated := false
+	for _, c := range akamaiCandidates {
+		if c.CDN == "Akamai" && c.SNI == "a248.e.akamai.net" && c.CDNSet == "psiphon-akamai" {
+			hasCurated = true
+			break
+		}
+	}
+	if !hasCurated {
+		t.Errorf("expected Akamai candidate with matching SNI & set")
+	}
+
+	// CloudFront
+	cfCandidates := GenerateCandidateIPsForTarget("cloudfront", nil, 20)
+	if len(cfCandidates) == 0 {
+		t.Fatalf("expected cloudfront candidates, got 0")
+	}
+	for _, c := range cfCandidates {
+		if c.CDN != "CloudFront" || c.SNI != "d1.cloudfront.net" || c.CDNSet != "cloudfront" {
+			t.Errorf("invalid cloudfront candidate: %+v", c)
+		}
+	}
+
+	// All
+	allCandidates := GenerateCandidateIPsForTarget("all", nil, 30)
+	if len(allCandidates) == 0 {
+		t.Fatalf("expected all candidates, got 0")
+	}
+}
+
+func TestCreateOrUpdateCleanIPNodeWithName_CDN(t *testing.T) {
+	node, err := CreateOrUpdateCleanIPNodeWithName(nil, "23.209.210.213", 100, "")
+	if err != nil {
+		t.Fatalf("failed creating node: %v", err)
+	}
+	if node.SNI != "a248.e.akamai.net" {
+		t.Errorf("expected SNI a248.e.akamai.net, got %s", node.SNI)
+	}
+	if !strings.Contains(node.Name, "Akamai") {
+		t.Errorf("expected name to contain Akamai, got %s", node.Name)
+	}
+	if !strings.Contains(node.Source, "Akamai") {
+		t.Errorf("expected source to contain Akamai, got %s", node.Source)
+	}
+}
+
+
 

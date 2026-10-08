@@ -751,19 +751,28 @@
     <div class="modal-content modal-lg">
       <div class="modal-header">
         <div style="display:flex; align-items:center; gap:8px;">
-          <h3>Cloudflare Clean IP / CDN Fronting (اتصال مستقیم فیلترشکن)</h3>
+          <h3>CDN Clean IP / Fronting (اتصال مستقیم شیر و خورشید / CDN)</h3>
         </div>
         <button class="modal-close" data-close="cleanIPModal">&times;</button>
       </div>
       <div class="modal-body">
         <p class="modal-desc" style="direction: rtl; text-align: right; line-height: 1.6; font-size: 13px;">
-          اسکن هوشمند آی‌پی‌های تمیز شبکه Anycast کلودفلر (مشابه پروژه شیر و خورشید / Cloudflare WARP). با اتصال مستقیم به این آی‌پی‌ها بدون نیاز به هیچ کانفیگ یا اشتراک خارجی، اینترنت آزاد و نامحدود فعال می‌شود.
+          اسکن هوشمند آی‌پی‌های تمیز شبکه‌های CDN (آکامای شیر و خورشید، آمازون کلودفرانت و کلودفلر). با فرانتینگ دامنه، ترافیک بدون افت سرعت فیلترینگ را دور می‌زند.
         </p>
 
         <!-- Scanner Configuration Controls -->
         <div class="cleanip-controls-box">
           <div class="form-row">
-            <div class="form-group" style="flex: 1;">
+            <div class="form-group" style="flex: 1.1;">
+              <label>CDN Provider</label>
+              <select id="cleanIPCDNTarget">
+                <option value="akamai" selected>Akamai (ShirOKhorshid)</option>
+                <option value="cloudfront">Amazon CloudFront</option>
+                <option value="all">All CDNs</option>
+                <option value="cloudflare">Cloudflare</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 0.9;">
               <label>Worker Threads</label>
               <select id="cleanIPWorkers">
                 <option value="50">50 Workers (Gentle)</option>
@@ -772,7 +781,7 @@
                 <option value="300">300 Workers (High Speed)</option>
               </select>
             </div>
-            <div class="form-group" style="flex: 1;">
+            <div class="form-group" style="flex: 0.9;">
               <label>Timeout (ms)</label>
               <select id="cleanIPTimeout">
                 <option value="1000">1000 ms (Fast filter)</option>
@@ -780,11 +789,11 @@
                 <option value="2500">2500 ms (Thorough)</option>
               </select>
             </div>
-            <div class="form-group" style="flex: 1.2;">
+            <div class="form-group" style="flex: 1.1;">
               <label>تعداد آی‌پی برای اسکن (IP Count)</label>
               <input type="number" id="cleanIPSampleSize" value="500" min="10" max="10000" step="50" placeholder="مثلاً 500، 1000، 2000...">
             </div>
-            <div class="form-group" style="flex: 0.7;">
+            <div class="form-group" style="flex: 0.6;">
               <label>Target Port</label>
               <input type="number" id="cleanIPPort" value="443" min="1" max="65535">
             </div>
@@ -806,7 +815,7 @@
             <div class="scan-title">
               <div class="spinner"></div>
               <div>
-                <b id="cleanIPStateText">Scanning Cloudflare Clean IPs...</b>
+                <b id="cleanIPStateText">Scanning CDN Clean IPs...</b>
                 <div class="scan-msg" id="cleanIPMsgText">Connecting to edge servers...</div>
               </div>
             </div>
@@ -858,6 +867,7 @@
               <tr>
                 <th width="45">#</th>
                 <th>Clean IP Address</th>
+                <th>CDN Provider</th>
                 <th>Subnet / Block</th>
                 <th>Latency</th>
                 <th width="240">عملیات (Actions)</th>
@@ -865,8 +875,8 @@
             </thead>
             <tbody id="cleanIPTableBody">
               <tr>
-                <td colspan="5" class="text-center empty-state">
-                  No scan results yet. Click <b>Start Clean IP Scan</b> to discover low-latency unblocked Cloudflare edge IPs.
+                <td colspan="6" class="text-center empty-state">
+                  No scan results yet. Click <b>Start Clean IP Scan</b> to discover low-latency unblocked CDN edge IPs.
                 </td>
               </tr>
             </tbody>

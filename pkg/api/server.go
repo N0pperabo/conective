@@ -282,12 +282,23 @@ func (s *Server) handleTestSingleNode(w http.ResponseWriter, r *http.Request) {
 		if port <= 0 {
 			port = 443
 		}
+		probeSNI := node.SNI
+		if probeSNI == "" {
+			if strings.Contains(strings.ToLower(node.Tags), "cloudflare") || strings.Contains(strings.ToLower(node.Name), "cloudflare") {
+				probeSNI = "cp.cloudflare.com"
+			} else if strings.Contains(strings.ToLower(node.Tags), "cloudfront") || strings.Contains(strings.ToLower(node.Name), "cloudfront") {
+				probeSNI = "d1.cloudfront.net"
+			} else {
+				probeSNI = "a248.e.akamai.net"
+			}
+		}
+
 		addr := net.JoinHostPort(node.Server, strconv.Itoa(port))
 		dialer := &net.Dialer{Timeout: 3 * time.Second}
 		tlsDialer := &tls.Dialer{
 			NetDialer: dialer,
 			Config: &tls.Config{
-				ServerName:         "cp.cloudflare.com",
+				ServerName:         probeSNI,
 				InsecureSkipVerify: true,
 			},
 		}
@@ -1170,6 +1181,7 @@ func (s *Server) handleCleanIPStart(w http.ResponseWriter, r *http.Request) {
 		SampleSize  int      `json:"sample_size"`
 		CustomCIDRs []string `json:"custom_cidrs"`
 		Port        int      `json:"port"`
+		CDNTarget   string   `json:"cdn_target"`
 	}
 
 	if r.Body != nil {
@@ -1195,6 +1207,7 @@ func (s *Server) handleCleanIPStart(w http.ResponseWriter, r *http.Request) {
 		SampleSize:  req.SampleSize,
 		CustomCIDRs: req.CustomCIDRs,
 		Port:        req.Port,
+		CDNTarget:   req.CDNTarget,
 	}
 
 	if err := s.cleanIPMgr.StartScan(opts); err != nil {
@@ -1235,6 +1248,8 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 		IP      string `json:"ip"`
 		Port    int    `json:"port"`
 		Latency int    `json:"latency"`
+		CDN     string `json:"cdn"`
+		SNI     string `json:"sni"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -1245,14 +1260,18 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 			cleanIP = best[0].IP
 			req.Latency = best[0].Latency
 		} else {
-			cleanIP = "188.114.96.1"
+			cleanIP = "23.209.210.213"
 		}
 	}
 
-	cleanNode, err := cleanip.CreateOrUpdateCleanIPNode(s.db, cleanIP, req.Latency)
+	cleanNode, err := cleanip.CreateOrUpdateCleanIPNodeWithName(s.db, cleanIP, req.Latency, "")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("failed setting up Clean IP tunnel: %v", err))
 		return
+	}
+
+	if req.SNI != "" {
+		cleanNode.SNI = req.SNI
 	}
 
 	if r.URL.Query().Get("dry_run") == "true" {
@@ -1298,6 +1317,8 @@ func (s *Server) handleCleanIPSave(w http.ResponseWriter, r *http.Request) {
 		Port    int    `json:"port"`
 		Latency int    `json:"latency"`
 		Name    string `json:"name"`
+		CDN     string `json:"cdn"`
+		SNI     string `json:"sni"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -1321,6 +1342,11 @@ func (s *Server) handleCleanIPSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.SNI != "" {
+		cleanNode.SNI = req.SNI
+		_, _ = s.db.UpsertConfig(cleanNode)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"node":    cleanNode,
@@ -1340,6 +1366,8 @@ func (s *Server) handleCleanIPSaveAll(w http.ResponseWriter, r *http.Request) {
 			Port    int    `json:"port"`
 			Latency int    `json:"latency"`
 			Name    string `json:"name"`
+			CDN     string `json:"cdn"`
+			SNI     string `json:"sni"`
 		} `json:"ips"`
 	}
 
@@ -1360,6 +1388,10 @@ func (s *Server) handleCleanIPSaveAll(w http.ResponseWriter, r *http.Request) {
 			}
 			node, err := cleanip.CreateOrUpdateCleanIPNodeWithName(s.db, ip, latency, item.Name)
 			if err == nil && node != nil {
+				if item.SNI != "" {
+					node.SNI = item.SNI
+					_, _ = s.db.UpsertConfig(node)
+				}
 				savedNodes = append(savedNodes, node)
 			}
 		}

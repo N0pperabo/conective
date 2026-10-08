@@ -95,11 +95,22 @@ func (t *LiveTester) TestSingle(ctx context.Context, c *models.Config) (int, str
 			timeout = 5 * time.Second
 		}
 
+		probeSNI := c.SNI
+		if probeSNI == "" {
+			if strings.Contains(strings.ToLower(c.Tags), "cloudflare") || strings.Contains(strings.ToLower(c.Name), "cloudflare") {
+				probeSNI = "cp.cloudflare.com"
+			} else if strings.Contains(strings.ToLower(c.Tags), "cloudfront") || strings.Contains(strings.ToLower(c.Name), "cloudfront") {
+				probeSNI = "d1.cloudfront.net"
+			} else {
+				probeSNI = "a248.e.akamai.net"
+			}
+		}
+
 		dialer := &net.Dialer{Timeout: timeout}
 		tlsDialer := &tls.Dialer{
 			NetDialer: dialer,
 			Config: &tls.Config{
-				ServerName:         "cp.cloudflare.com",
+				ServerName:         probeSNI,
 				InsecureSkipVerify: true,
 			},
 		}

@@ -81,7 +81,7 @@ function restorePreferences() {
     }
 
     // 2. Restore Scanner Preferences (Clean IP Scanner controls)
-    ['cleanIPWorkers', 'cleanIPTimeout', 'cleanIPSampleSize', 'cleanIPPort'].forEach(id => {
+    ['cleanIPCDNTarget', 'cleanIPWorkers', 'cleanIPTimeout', 'cleanIPSampleSize', 'cleanIPPort'].forEach(id => {
       const saved = localStorage.getItem(id);
       const el = document.getElementById(id);
       if (saved !== null && el) {
@@ -175,7 +175,7 @@ function initEventListeners() {
   }
 
   // Scanner preferences persistence on change
-  ['cleanIPWorkers', 'cleanIPTimeout', 'cleanIPSampleSize', 'cleanIPPort'].forEach(id => {
+  ['cleanIPCDNTarget', 'cleanIPWorkers', 'cleanIPTimeout', 'cleanIPSampleSize', 'cleanIPPort'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       const saveFn = () => {
@@ -268,7 +268,7 @@ function initEventListeners() {
     el.addEventListener('input', triggerDebouncedAutoSave);
   });
 
-  ['#cleanIPWorkers', '#cleanIPTimeout', '#cleanIPSampleSize', '#cleanIPPort'].forEach(sel => {
+  ['#cleanIPCDNTarget', '#cleanIPWorkers', '#cleanIPTimeout', '#cleanIPSampleSize', '#cleanIPPort'].forEach(sel => {
     const el = document.querySelector(sel);
     if (el) {
       el.addEventListener('change', triggerImmediateAutoSave);
@@ -2022,7 +2022,7 @@ function renderCleanIPResults(ips) {
   if (ips.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" class="text-center empty-state">
+        <td colspan="6" class="text-center empty-state">
           هنوز آی‌پی تمیزی یافت نشده است. روی <b>Start Clean IP Scan</b> کلیک کنید تا آی‌پی‌های پرسرعت Anycast پیدا شوند.
         </td>
       </tr>
@@ -2037,6 +2037,12 @@ function renderCleanIPResults(ips) {
     if (item.latency < 140) latClass = 'cleanip-latency-fast';
     else if (item.latency < 220) latClass = 'cleanip-latency-med';
 
+    const cdnName = item.cdn || 'Akamai';
+    let cdnClass = 'akamai';
+    if (cdnName.toLowerCase().includes('cloud')) {
+      cdnClass = cdnName.toLowerCase().includes('front') ? 'cloudfront' : 'cloudflare';
+    }
+
     tr.innerHTML = `
       <td>${index + 1}</td>
       <td>
@@ -2046,8 +2052,11 @@ function renderCleanIPResults(ips) {
         </div>
       </td>
       <td>
+        <span class="proto-tag ${cdnClass}">${escapeHTML(cdnName)}</span>
+      </td>
+      <td>
         <span style="font-size: 12px; color: var(--text-muted);">
-          ${item.country_name ? `<b>${escapeHTML(item.country_name)}</b> • ` : ''}${escapeHTML(item.subnet || 'Anycast')}
+          ${item.country_name ? `<b>${escapeHTML(item.country_name)}</b> • ` : ''}${escapeHTML(item.subnet || 'Edge')}
         </span>
       </td>
       <td>
@@ -2070,12 +2079,12 @@ function renderCleanIPResults(ips) {
 
     tr.querySelector('.btn-connect-ip').addEventListener('click', (e) => {
       e.stopPropagation();
-      connectCleanIP(item.ip, item.latency);
+      connectCleanIP(item.ip, item.latency, item.cdn, item.sni);
     });
 
     tr.querySelector('.btn-save-ip').addEventListener('click', (e) => {
       e.stopPropagation();
-      addCleanIPToConfigs(item.ip, item.latency);
+      addCleanIPToConfigs(item.ip, item.latency, item.cdn, item.sni);
     });
 
     tr.querySelector('.btn-copy-ip').addEventListener('click', (e) => {
@@ -2089,6 +2098,7 @@ function renderCleanIPResults(ips) {
 }
 
 async function startCleanIPScan() {
+  const cdnTarget = document.getElementById('cleanIPCDNTarget')?.value || 'akamai';
   const workers = parseInt(document.getElementById('cleanIPWorkers')?.value || '100');
   const timeoutMs = parseInt(document.getElementById('cleanIPTimeout')?.value || '1500');
   const sampleSize = parseInt(document.getElementById('cleanIPSampleSize')?.value || '500');
@@ -2099,6 +2109,7 @@ async function startCleanIPScan() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        cdn_target: cdnTarget,
         workers: workers,
         timeout_ms: timeoutMs,
         sample_size: sampleSize,
@@ -2111,7 +2122,13 @@ async function startCleanIPScan() {
       throw new Error(err.error || 'Failed to start clean IP scan');
     }
 
-    showToast(`در حال اسکن آی‌پی‌های تمیز Cloudflare Anycast...`, 'info');
+    const targetLabels = {
+      akamai: 'Akamai (ShirOKhorshid)',
+      cloudfront: 'Amazon CloudFront',
+      cloudflare: 'Cloudflare',
+      all: 'All CDNs'
+    };
+    showToast(`در حال اسکن آی‌پی‌های تمیز ${targetLabels[cdnTarget] || cdnTarget}...`, 'info');
     loadCleanIPStatus();
   } catch (e) {
     showToast(e.message, 'error');
@@ -2132,7 +2149,7 @@ async function cancelCleanIPScan() {
   }
 }
 
-async function connectCleanIP(ip, latency = 0) {
+async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
   try {
     showToast(`در حال اتصال به اینترنت آزاد از طریق آی‌پی تمیز ${ip}...`, 'info');
     const res = await fetch('/api/tools/clean-ip/connect', {
@@ -2142,6 +2159,8 @@ async function connectCleanIP(ip, latency = 0) {
         ip: ip,
         port: 443,
         latency: latency,
+        cdn: cdn,
+        sni: sni,
       }),
     });
 
@@ -2165,10 +2184,10 @@ async function connectFastestCleanIP() {
     showToast('هیچ آی‌پی تمیزی یافت نشد. لطفاً ابتدا اسکن را شروع کنید.', 'warning');
     return;
   }
-  connectCleanIP(cleanIPList[0].ip, cleanIPList[0].latency);
+  connectCleanIP(cleanIPList[0].ip, cleanIPList[0].latency, cleanIPList[0].cdn, cleanIPList[0].sni);
 }
 
-async function addCleanIPToConfigs(ip, latency = 0) {
+async function addCleanIPToConfigs(ip, latency = 0, cdn = '', sni = '') {
   try {
     showToast(`در حال افزودن آی‌پی تمیز ${ip} به لیست کانفیگ‌ها...`, 'info');
     const res = await fetch('/api/tools/clean-ip/save', {
@@ -2178,6 +2197,8 @@ async function addCleanIPToConfigs(ip, latency = 0) {
         ip: ip,
         port: 443,
         latency: latency,
+        cdn: cdn,
+        sni: sni,
       }),
     });
 
@@ -2199,7 +2220,7 @@ async function addFastestCleanIPToConfigs() {
     showToast('هیچ آی‌پی تمیزی یافت نشد. لطفاً ابتدا اسکن را شروع کنید.', 'warning');
     return;
   }
-  await addCleanIPToConfigs(cleanIPList[0].ip, cleanIPList[0].latency);
+  await addCleanIPToConfigs(cleanIPList[0].ip, cleanIPList[0].latency, cleanIPList[0].cdn, cleanIPList[0].sni);
 }
 
 async function addAllCleanIPsToConfigs() {
@@ -2213,7 +2234,7 @@ async function addAllCleanIPsToConfigs() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ips: cleanIPList.map(item => ({ ip: item.ip, port: 1701, latency: item.latency })),
+        ips: cleanIPList.map(item => ({ ip: item.ip, port: 443, latency: item.latency, cdn: item.cdn, sni: item.sni })),
       }),
     });
 
