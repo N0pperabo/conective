@@ -169,7 +169,7 @@ func (r *Runner) GetStatus() models.ConnectionStatus {
 
 // Connect starts the local proxy client for the chosen node and verifies health
 func (r *Runner) Connect(node *models.Config) error {
-	if node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting" {
+	if node.IsCDNIP() || node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting" {
 		r.mu.Lock()
 		if r.db != nil {
 			r.gamingMode = r.db.GetSetting("gaming_mode", "false") == "true"

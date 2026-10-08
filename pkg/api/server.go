@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -114,6 +116,8 @@ func (s *Server) registerRoutes() {
 	// Subscription Import & Export
 	s.mux.HandleFunc("/api/sub/export", s.handleExportSub)
 	s.mux.HandleFunc("/api/sub/import", s.handleImportSub)
+	s.mux.HandleFunc("/api/subscription/export", s.handleExportSub)
+	s.mux.HandleFunc("/api/subscription/import", s.handleImportSub)
 
 	// Server-Sent Events (SSE) for Real-Time UI updates
 	s.mux.HandleFunc("/api/events", s.handleEventsSSE)
@@ -264,11 +268,59 @@ func (s *Server) handleTestSingleNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeout, _ := strconv.Atoi(s.db.GetSetting("test_timeout_sec", "5"))
-	endpoint := s.db.GetSetting("test_endpoint", "http://cp.cloudflare.com/generate_204")
+	wasWorking := node.Status == "working" || node.Score > 0
 
-	tester := v2go.NewLiveTester(endpoint, timeout)
-	latency, exitIP, ipData, err := tester.TestSingle(r.Context(), node)
+	var latency int = -1
+	var exitIP string
+	var ipData *v2go.IPDataDetails
+	var testErr error
+
+	isPsiphonOrCleanIP := node.IsCDNIP() || node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting"
+
+	if isPsiphonOrCleanIP {
+		port := node.Port
+		if port <= 0 {
+			port = 443
+		}
+		addr := net.JoinHostPort(node.Server, strconv.Itoa(port))
+		dialer := &net.Dialer{Timeout: 3 * time.Second}
+		tlsDialer := &tls.Dialer{
+			NetDialer: dialer,
+			Config: &tls.Config{
+				ServerName:         "cp.cloudflare.com",
+				InsecureSkipVerify: true,
+			},
+		}
+
+		start := time.Now()
+		conn, dialErr := tlsDialer.DialContext(r.Context(), "tcp", addr)
+		if dialErr != nil {
+			conn, dialErr = dialer.DialContext(r.Context(), "tcp", addr)
+		}
+
+		if dialErr == nil {
+			_ = conn.Close()
+			latency = int(time.Since(start).Milliseconds())
+			if latency <= 0 {
+				latency = 1
+			}
+			exitIP = node.Server
+			if node.ExitIP != "" {
+				exitIP = node.ExitIP
+			}
+		} else {
+			latency = -1
+			testErr = dialErr
+		}
+	} else {
+		timeout, _ := strconv.Atoi(s.db.GetSetting("test_timeout_sec", "5"))
+		endpoint := s.db.GetSetting("test_endpoint", "http://cp.cloudflare.com/generate_204")
+
+		tester := v2go.NewLiveTester(endpoint, timeout)
+		latency, exitIP, ipData, testErr = tester.TestSingle(r.Context(), node)
+	}
+
+	_ = testErr
 
 	status := "dead"
 	score := 0
@@ -285,11 +337,26 @@ func (s *Server) handleTestSingleNode(w http.ResponseWriter, r *http.Request) {
 			riskLevel = ipData.RiskLevel
 			threatsCount = ipData.ThreatsCount
 			org = ipData.Organisation
+		} else {
+			trustScore = node.TrustScore
+			riskLevel = node.RiskLevel
+			threatsCount = node.ThreatsCount
+			org = node.Organisation
+		}
+		_ = s.db.UpdateTestResult(node.Identity, latency, status, exitIP, "", "", "", score, trustScore, riskLevel, threatsCount, org)
+	} else {
+		if wasWorking {
+			// Do NOT set score = 0 or corrupt the node's previous identity if it was already working; update last_tested
+			_ = s.db.UpdateLastTested(id)
+		} else {
+			_ = s.db.UpdateTestResult(node.Identity, -1, "dead", "", "", "", "", 0, -1, "", 0, "")
 		}
 	}
 
-	_ = s.db.UpdateTestResult(node.Identity, latency, status, exitIP, "", "", "", score, trustScore, riskLevel, threatsCount, org)
 	updated, _ := s.db.GetConfigByID(id)
+	if updated == nil {
+		updated = node
+	}
 
 	writeJSON(w, http.StatusOK, updated)
 }
@@ -381,8 +448,8 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enable Windows system proxy if enabled in settings or for Psiphon nodes
-	sysProxyEnabled := s.db.GetSetting("system_proxy", "true") == "true" || node.Protocol == "psiphon"
+	// Enable Windows system proxy if enabled in settings or for Psiphon / CDN IP nodes
+	sysProxyEnabled := s.db.GetSetting("system_proxy", "true") == "true" || node.Protocol == "psiphon" || node.IsCDNIP()
 	if sysProxyEnabled && s.proxyMgr != nil {
 		status := s.runner.GetStatus()
 		_ = s.proxyMgr.Enable(status.HTTPPort)
@@ -918,6 +985,7 @@ func (s *Server) handleExportSub(w http.ResponseWriter, r *http.Request) {
 	filter := database.ConfigFilter{
 		Protocol: q.Get("protocol"),
 		Country:  q.Get("country"),
+		Tag:      q.Get("tag"),
 	}
 
 	subText, err := s.subMgr.GenerateSubscription(filter, format)

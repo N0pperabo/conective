@@ -254,7 +254,7 @@ func CreateOrUpdateWarpNodeWithName(db *database.DB, cleanIP string, port int, l
 		nodeName = fmt.Sprintf("⚡ Cloudflare WARP | %s", cleanIP)
 	}
 
-	tags := "warp,clean-ip,cloudflare"
+	tags := "CDN IP,warp,clean-ip,cloudflare"
 	if account.Reserved != "" {
 		tags += ",reserved=" + account.Reserved
 	}
@@ -287,7 +287,7 @@ func CreateOrUpdateWarpNodeWithName(db *database.DB, cleanIP string, port int, l
 		Latency:     latency,
 		Status:      "working",
 		Score:       1000,
-		IsFavorite:  true,
+		IsFavorite:  false,
 		Tags:        tags,
 		FirstSeen:   time.Now(),
 		LastSeen:    time.Now(),

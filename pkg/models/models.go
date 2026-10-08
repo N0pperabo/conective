@@ -1,6 +1,39 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+// Standard protocol identifiers and tag constants
+const (
+	ProtocolPsiphon = "psiphon"
+	ProtocolCDNIP   = "CDN IP"
+	TagCDNIP        = "CDN IP"
+	TagCleanIP      = "clean-ip"
+	TagPsiphon      = "psiphon"
+)
+
+// IsCDNIPProtocol checks whether the given protocol name represents Psiphon / Clean IP / CDN IP.
+func IsCDNIPProtocol(proto string) bool {
+	p := strings.TrimSpace(strings.ToLower(proto))
+	return p == "psiphon" || p == "cdn ip" || p == "cdn-ip" || p == "cdnip" || p == "clean-ip" || p == "clean ip"
+}
+
+// IsCDNIPTag checks whether the given tag name represents Psiphon / Clean IP / CDN IP.
+func IsCDNIPTag(tag string) bool {
+	t := strings.TrimSpace(strings.ToLower(tag))
+	return t == "cdn ip" || t == "cdn-ip" || t == "cdnip" || t == "clean-ip" || t == "clean ip" || t == "psiphon" || t == "cdn-fronting"
+}
+
+// NormalizeProtocol maps protocol aliases to a canonical name.
+// Both "psiphon" and "CDN IP" variations are recognized.
+func NormalizeProtocol(proto string) string {
+	if IsCDNIPProtocol(proto) {
+		return ProtocolCDNIP
+	}
+	return strings.ToLower(strings.TrimSpace(proto))
+}
 
 // Source represents an upstream subscription or config source
 type Source struct {
@@ -48,6 +81,47 @@ type Config struct {
 	RawLink      string    `json:"raw_link"`
 	IsFavorite   bool      `json:"is_favorite"`   // User favorite flag
 	Tags         string    `json:"tags"`          // User defined tags, comma separated
+}
+
+// HasTag checks if the config contains a specific tag (case-insensitive, comma-delimited).
+func (c *Config) HasTag(tag string) bool {
+	if c == nil || c.Tags == "" || tag == "" {
+		return false
+	}
+	target := strings.TrimSpace(strings.ToLower(tag))
+	for _, t := range strings.Split(c.Tags, ",") {
+		if strings.TrimSpace(strings.ToLower(t)) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// AddTag appends a tag to the config if not already present.
+func (c *Config) AddTag(tag string) {
+	if c == nil || tag == "" || c.HasTag(tag) {
+		return
+	}
+	trimmed := strings.TrimSpace(tag)
+	if c.Tags == "" {
+		c.Tags = trimmed
+	} else {
+		c.Tags = c.Tags + "," + trimmed
+	}
+}
+
+// IsCDNIP checks whether this config is a Psiphon / CDN IP node.
+func (c *Config) IsCDNIP() bool {
+	if c == nil {
+		return false
+	}
+	if IsCDNIPProtocol(c.Protocol) {
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(c.Identity), "cleanip-") || c.Source == "Clean IP Fronting" {
+		return true
+	}
+	return c.HasTag(TagCDNIP) || c.HasTag(TagCleanIP) || c.HasTag(TagPsiphon)
 }
 
 // TestResult records a single test attempt

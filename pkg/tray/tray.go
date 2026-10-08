@@ -278,6 +278,12 @@ func (t *Tray) AttachWindow(hwnd uintptr, isMinimizeEnabled func() bool) {
 	t.mu.Unlock()
 
 	attachedWindows.Store(hwnd, t)
+
+	newWndProc := windows.NewCallback(targetSubclassWndProc)
+	origProc := setWindowLongPtr(hwnd, GWLP_WNDPROC, newWndProc)
+	t.mu.Lock()
+	t.origTargetWndProc = origProc
+	t.mu.Unlock()
 }
 
 // ShowWindow restores and focuses the attached window.
@@ -313,11 +319,16 @@ func (t *Tray) ExitApp() {
 	t.mu.Lock()
 	t.isExiting = true
 	target := t.targetHwnd
+	origProc := t.origTargetWndProc
 	onExit := t.opts.OnExit
 	t.mu.Unlock()
 
 	if onExit != nil {
 		onExit()
+	}
+
+	if origProc != 0 && target != 0 {
+		setWindowLongPtr(target, GWLP_WNDPROC, origProc)
 	}
 
 	// Post WM_CLOSE to target window so it destroys cleanly
@@ -495,8 +506,12 @@ func targetSubclassWndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		}
 	}
 
-	if t.origTargetWndProc != 0 {
-		return callWindowProc(t.origTargetWndProc, hwnd, uint32(msg), wParam, lParam)
+	t.mu.RLock()
+	origProc := t.origTargetWndProc
+	t.mu.RUnlock()
+
+	if origProc != 0 {
+		return callWindowProc(origProc, hwnd, uint32(msg), wParam, lParam)
 	}
 
 	r, _, _ := procDefWindowProcW.Call(hwnd, msg, wParam, lParam)

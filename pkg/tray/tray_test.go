@@ -145,8 +145,9 @@ func TestWindowAttachmentAndMethods(t *testing.T) {
 	}
 
 	if !minimized {
-		t.Logf("Window was minimized to tray on WM_CLOSE (subclass intercepted WM_CLOSE)")
+		t.Fatalf("expected window to be minimized to tray on WM_CLOSE, but minimize hook was not triggered")
 	}
+	t.Logf("Window was minimized to tray on WM_CLOSE (subclass intercepted WM_CLOSE)")
 }
 
 func TestStation(t *testing.T) {
@@ -268,6 +269,93 @@ func TestSetWindowIcon(t *testing.T) {
 	}
 	if err := SetWindowIcon(hwnd, nil); err != nil {
 		t.Fatalf("SetWindowIcon with nil bytes failed: %v", err)
+	}
+}
+
+func TestAttachWindowSubclassing(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	hInst, _, _ := procGetModuleHandleW.Call(0)
+	className := windows.StringToUTF16Ptr("TestAttachWindowSubclassClass")
+	wc := WNDCLASSEXW{
+		CbSize:        uint32(unsafe.Sizeof(WNDCLASSEXW{})),
+		HInstance:     windows.Handle(hInst),
+		LpszClassName: className,
+		LpfnWndProc: windows.NewCallback(func(hwnd, msg, wParam, lParam uintptr) uintptr {
+			r, _, _ := procDefWindowProcW.Call(hwnd, msg, wParam, lParam)
+			return r
+		}),
+	}
+	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+
+	hwnd, _, _ := procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(className)),
+		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Subclass Test Window"))),
+		0,
+		0, 0, 100, 100,
+		0, 0,
+		hInst,
+		0,
+	)
+	if hwnd == 0 {
+		t.Fatalf("failed to create test window")
+	}
+	defer procDestroyWindow.Call(hwnd)
+
+	tr := New(Options{
+		IconBytes: assets.AppIcon,
+		Title:     "Conective Test",
+	})
+
+	minimizeChecked := false
+	minimizeEnabled := true
+	tr.AttachWindow(hwnd, func() bool {
+		minimizeChecked = true
+		return minimizeEnabled
+	})
+
+	if tr.origTargetWndProc == 0 {
+		t.Fatalf("expected origTargetWndProc to be non-zero after AttachWindow")
+	}
+
+	// Show window initially
+	procShowWindow.Call(hwnd, SW_SHOW)
+	vis, _, _ := procIsWindowVisible.Call(hwnd)
+	if vis == 0 {
+		t.Fatalf("expected window to be visible")
+	}
+
+	// 1. Test WM_CLOSE with minimize enabled: window should be hidden, not destroyed
+	procSendMessageW.Call(hwnd, WM_CLOSE, 0, 0)
+
+	if !minimizeChecked {
+		t.Errorf("expected isMinimizeEnabled callback to be called on WM_CLOSE")
+	}
+
+	visAfter, _, _ := procIsWindowVisible.Call(hwnd)
+	if visAfter != 0 {
+		t.Errorf("expected window to be hidden after minimize-to-tray WM_CLOSE")
+	}
+
+	isWin, _, _ := procIsWindow.Call(hwnd)
+	if isWin == 0 {
+		t.Errorf("expected window to still exist after minimize-to-tray WM_CLOSE")
+	}
+
+	// 2. Test ExitApp restores original WndProc and marks isExiting
+	origProc := tr.origTargetWndProc
+	tr.ExitApp()
+
+	if !tr.isExiting {
+		t.Errorf("expected tr.isExiting to be true after ExitApp")
+	}
+
+	// Check that setWindowLongPtr restored origProc
+	currProc := setWindowLongPtr(hwnd, GWLP_WNDPROC, origProc)
+	if currProc != origProc {
+		t.Errorf("expected window proc to be restored to %x, got %x", origProc, currProc)
 	}
 }
 

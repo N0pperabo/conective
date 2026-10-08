@@ -3,6 +3,7 @@ package v2go
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -83,10 +84,52 @@ func NewLiveTester(endpoint string, timeoutSec int) *LiveTester {
 
 // TestSingle tests a single configuration through an embedded in-memory Xray-core instance
 func (t *LiveTester) TestSingle(ctx context.Context, c *models.Config) (int, string, *IPDataDetails, error) {
+	if c.Protocol == "psiphon" || strings.HasPrefix(c.Identity, "cleanip-") || c.Source == "Clean IP Fronting" {
+		port := c.Port
+		if port <= 0 {
+			port = 443
+		}
+		addr := net.JoinHostPort(c.Server, strconv.Itoa(port))
+		timeout := t.timeout
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+
+		dialer := &net.Dialer{Timeout: timeout}
+		tlsDialer := &tls.Dialer{
+			NetDialer: dialer,
+			Config: &tls.Config{
+				ServerName:         "cp.cloudflare.com",
+				InsecureSkipVerify: true,
+			},
+		}
+
+		start := time.Now()
+		conn, err := tlsDialer.DialContext(ctx, "tcp", addr)
+		if err != nil {
+			conn, err = dialer.DialContext(ctx, "tcp", addr)
+		}
+		if err != nil {
+			return -1, "", nil, err
+		}
+		_ = conn.Close()
+
+		latency := int(time.Since(start).Milliseconds())
+		if latency <= 0 {
+			latency = 1
+		}
+		c.Status = "working"
+		exitIP := c.Server
+		return latency, exitIP, nil, nil
+	}
 	return t.testCore(ctx, c, true)
 }
 
 func (t *LiveTester) testCore(ctx context.Context, c *models.Config, checkTrust bool) (int, string, *IPDataDetails, error) {
+	if c.Protocol == "psiphon" || strings.HasPrefix(c.Identity, "cleanip-") || c.Source == "Clean IP Fronting" {
+		return t.TestSingle(ctx, c)
+	}
+
 	// Fast TCP pre-dial check:
 	// For standard TCP/WS/gRPC configs, if the host:port cannot even establish a TCP connection,
 	// the server is completely unreachable. Pre-filtering avoids creating an Xray-core instance,
@@ -94,7 +137,11 @@ func (t *LiveTester) testCore(ctx context.Context, c *models.Config, checkTrust 
 	if c.Protocol != "hysteria2" && c.Protocol != "tuic" && c.Protocol != "wireguard" && c.Transport != "kcp" && c.Transport != "quic" {
 		if c.Server != "" && c.Port > 0 {
 			addr := net.JoinHostPort(c.Server, strconv.Itoa(c.Port))
-			d := net.Dialer{Timeout: 1500 * time.Millisecond}
+			dialTimeout := t.timeout
+			if dialTimeout < 5*time.Second {
+				dialTimeout = 5 * time.Second
+			}
+			d := net.Dialer{Timeout: dialTimeout}
 			conn, err := d.DialContext(ctx, "tcp", addr)
 			if err != nil {
 				return -1, "", nil, fmt.Errorf("pre-check server unreachable: %w", err)

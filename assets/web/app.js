@@ -345,7 +345,7 @@ function initEventListeners() {
       if (confirm('Are you sure you want to stop and exit Conective?')) {
         try {
           await fetch('/api/system/exit', { method: 'POST' });
-          document.body.innerHTML = '<div style="display:flex;height:100vh;align-items:center;justify-content:center;font-family:sans-serif;background:#000;color:#fff;text-align:center;"><div><h2>⚡ Conective has shut down cleanly.</h2><p style="color:#8b949e;margin-top:10px;">All network adapters and routes have been restored. You can close this window.</p></div></div>';
+          document.body.innerHTML = '<div style="display:flex;height:100vh;align-items:center;justify-content:center;font-family:sans-serif;background:#000;color:#fff;text-align:center;"><div><h2>Conective has shut down cleanly.</h2><p style="color:#8b949e;margin-top:10px;">All network adapters and routes have been restored. You can close this window.</p></div></div>';
         } catch (e) {
           window.close();
         }
@@ -374,7 +374,7 @@ function initEventListeners() {
     chkHeroTun.addEventListener('change', async (e) => {
       const enabled = e.target.checked;
       if (enabled && activeConnection && !activeConnection.is_admin) {
-        showToast('⚠️ TUN Mode requires Administrator privileges! Run Conective as Administrator if connection fails.', 'warning');
+        showToast('TUN Mode requires Administrator privileges! Run Conective as Administrator if connection fails.', 'warning');
       }
       try {
         const res = await fetch('/api/connection/toggle-tun', {
@@ -388,7 +388,7 @@ function initEventListeners() {
           e.target.checked = !enabled;
         } else {
           if (data.tun_mode) {
-            showToast('🛡️ TUN Mode enabled: All system & application traffic routes through VPN', 'success');
+            showToast('TUN Mode enabled: All system & application traffic routes through VPN', 'success');
           } else {
             showToast('TUN Mode disabled. Standard proxy mode active.', 'info');
           }
@@ -418,7 +418,7 @@ function initEventListeners() {
           e.target.checked = !enabled;
         } else {
           if (data.gaming_mode) {
-            showToast('🎮 Gaming Mode enabled: Low MTU (1400), TCP_NODELAY & UDP acceleration active', 'success');
+            showToast('Gaming Mode enabled: Low MTU (1400), TCP_NODELAY & UDP acceleration active', 'success');
           } else {
             showToast('Gaming Mode disabled.', 'info');
           }
@@ -457,7 +457,7 @@ function initEventListeners() {
       const text = document.getElementById('lanHttpProxyText')?.textContent || '';
       if (text) {
         navigator.clipboard.writeText(text);
-        showToast('📋 Copied HTTP proxy URL to clipboard!', 'success');
+        showToast('Copied HTTP proxy URL to clipboard!', 'success');
       }
     });
   }
@@ -468,7 +468,7 @@ function initEventListeners() {
       const text = document.getElementById('lanSocksProxyText')?.textContent || '';
       if (text) {
         navigator.clipboard.writeText(text);
-        showToast('📋 Copied SOCKS5 proxy to clipboard!', 'success');
+        showToast('Copied SOCKS5 proxy to clipboard!', 'success');
       }
     });
   }
@@ -592,13 +592,14 @@ function updateConnectionUI(conn) {
     dot.className = 'status-dot connected';
     txt.textContent = 'CONNECTED';
     detail.textContent = conn.tun_mode ?
-      `🛡️ Full System VPN (TUN Active) -> ${conn.active_node.name}` :
+      `Full System VPN (TUN Active) -> ${conn.active_node.name}` :
       `Routing traffic through ${conn.active_node.name}`;
 
     nodeStats.style.display = 'flex';
     document.getElementById('activeFlag').innerHTML = flagImg(conn.active_node.country);
     document.getElementById('activeCountry').textContent = conn.active_node.country_name || conn.active_node.country;
-    document.getElementById('activeProto').textContent = (conn.active_node.protocol || 'VLESS').toUpperCase();
+    const activeProtoDisplay = (conn.active_node.protocol && conn.active_node.protocol.toLowerCase() === 'psiphon') ? 'CDN IP' : (conn.active_node.protocol || 'VLESS').toUpperCase();
+    document.getElementById('activeProto').textContent = activeProtoDisplay;
     document.getElementById('activeLatency').textContent = `${conn.latency || conn.active_node.latency} ms`;
     document.getElementById('activeExitIP').textContent = `IP: ${conn.exit_ip || conn.active_node.server}`;
 
@@ -606,7 +607,7 @@ function updateConnectionUI(conn) {
     if (activeTrust) {
       if (conn.active_node.trust_score >= 0) {
         activeTrust.style.display = 'inline-flex';
-        activeTrust.textContent = `🛡️ Trust: ${conn.active_node.trust_score}`;
+        activeTrust.textContent = `Trust: ${conn.active_node.trust_score}`;
         if (conn.active_node.trust_score >= 60) {
           activeTrust.className = 'stat-pill trust-low';
         } else if (conn.active_node.trust_score >= 40) {
@@ -649,7 +650,7 @@ function updateScanUI(scan) {
     if (btnPingAll) {
       btnPingAll.classList.add('btn-danger');
       btnPingAll.classList.remove('btn-primary');
-      btnPingAll.innerHTML = '<span class="btn-icon">🛑</span> Cancel Ping';
+      btnPingAll.innerHTML = 'Cancel Ping';
     }
     document.getElementById('scanStateText').textContent = `Scanning: ${scan.state.toUpperCase()}`;
     document.getElementById('scanMessageText').textContent = scan.message;
@@ -669,7 +670,7 @@ function updateScanUI(scan) {
     if (btnPingAll) {
       btnPingAll.classList.remove('btn-danger');
       btnPingAll.classList.add('btn-primary');
-      btnPingAll.innerHTML = '<span class="btn-icon">⚡</span> Ping All';
+      btnPingAll.innerHTML = 'Ping All';
     }
     if (scan.state === 'completed' || scan.state === 'cancelled') {
       setTimeout(() => {
@@ -780,20 +781,20 @@ function renderNodesTable(nodes, total) {
     if (n.trust_score >= 0) {
       const tClass = n.trust_score >= 60 ? 'trust-low' : (n.trust_score >= 40 ? 'trust-mod' : 'trust-high');
       const rLabel = n.risk_level || (n.trust_score >= 60 ? 'Low risk' : (n.trust_score >= 40 ? 'Moderate risk' : 'High risk'));
-      trustBadgeHTML = `<span class="trust-badge ${tClass} btn-open-ipdata" data-id="${n.id}" title="Threats: ${n.threats_count} | Org: ${escapeHTML(n.organisation || '')}">🛡️ ${n.trust_score} – ${rLabel}</span>`;
+      trustBadgeHTML = `<span class="trust-badge ${tClass} btn-open-ipdata" data-id="${n.id}" title="Threats: ${n.threats_count} | Org: ${escapeHTML(n.organisation || '')}">${n.trust_score} – ${rLabel}</span>`;
     } else {
-      trustBadgeHTML = `<button class="btn btn-sm btn-outline-secondary btn-check-trust" data-id="${n.id}" title="Check trust score on ipdata.co">🛡️ Check</button>`;
+      trustBadgeHTML = `<button class="btn btn-sm btn-outline-secondary btn-check-trust" data-id="${n.id}" title="Check trust score on ipdata.co">Check</button>`;
     }
 
     tr.innerHTML = `
       <td>
         <div style="display:flex; align-items:center; gap:5px;">
-          <button type="button" class="btn-fav ${n.is_favorite ? 'is-fav' : ''}" data-id="${n.id}" title="${n.is_favorite ? 'Remove Favorite' : 'Add to Favorites'}">${n.is_favorite ? '⭐' : '☆'}</button>
+          <button type="button" class="btn-fav ${n.is_favorite ? 'is-fav' : ''}" data-id="${n.id}" title="${n.is_favorite ? 'Remove Favorite' : 'Add to Favorites'}">${n.is_favorite ? '★' : '☆'}</button>
           <span>${start + idx}</span>
         </div>
       </td>
       <td>${flagImg(n.country)}<b>${(n.country === 'CF' || n.country === 'CLOUDFLARE') ? 'CLOUDFLARE' : n.country}</b> <span class="text-muted" style="font-size:11px;">${n.country_name || ''}</span></td>
-      <td><span class="proto-tag ${protoClass}">${n.protocol}</span></td>
+      <td><span class="proto-tag ${protoClass}">${(n.protocol && n.protocol.toLowerCase() === 'psiphon') ? 'CDN IP' : n.protocol}</span></td>
       <td>
         <div style="font-weight:600;">${escapeHTML(stripFlagEmoji(n.name))}</div>
         <div class="text-muted" style="font-size:11px;">${escapeHTML(n.server)}:${n.port}</div>
@@ -808,9 +809,9 @@ function renderNodesTable(nodes, total) {
       <td>
         <div class="table-actions">
           <button class="btn btn-sm btn-primary btn-select" data-id="${n.id}">Select</button>
-          <button class="btn btn-sm btn-secondary btn-open-ipdata" data-id="${n.id}" title="View ipdata.co Intelligence">🛡️</button>
-          <button class="btn btn-sm btn-secondary btn-test" data-id="${n.id}" title="Test Ping">⚡</button>
-          <button class="btn btn-sm btn-secondary btn-copy" data-link="${escapeHTML(n.raw_link)}" title="Copy Link">📋</button>
+          <button class="btn btn-sm btn-secondary btn-open-ipdata" data-id="${n.id}" title="View ipdata.co Intelligence">Trust</button>
+          <button class="btn btn-sm btn-secondary btn-test" data-id="${n.id}" title="Test Ping">Ping</button>
+          <button class="btn btn-sm btn-secondary btn-copy" data-link="${escapeHTML(n.raw_link)}" title="Copy Link">Copy</button>
         </div>
       </td>
     `;
@@ -841,9 +842,9 @@ function renderNodesTable(nodes, total) {
           if (data && data.success) {
             n.is_favorite = data.is_favorite;
             favBtn.classList.toggle('is-fav', n.is_favorite);
-            favBtn.textContent = n.is_favorite ? '⭐' : '☆';
+            favBtn.textContent = n.is_favorite ? '★' : '☆';
             favBtn.title = n.is_favorite ? 'Remove Favorite' : 'Add to Favorites';
-            showToast(n.is_favorite ? 'Added to Favorites ⭐' : 'Removed from Favorites', 'info');
+            showToast(n.is_favorite ? 'Added to Favorites' : 'Removed from Favorites', 'info');
             loadStatus();
             if ((isFavoritesFilterActive || filterStatus.value === 'favorites') && !n.is_favorite) {
               tr.style.opacity = '0.35';
@@ -1070,7 +1071,7 @@ async function triggerPingAll() {
     if (data.error) {
       showToast(data.error, 'error');
     } else {
-      showToast('⚡ Concurrent ping test started!', 'success');
+      showToast('Concurrent ping test started!', 'success');
       scanBanner.style.display = 'block';
     }
   } catch (err) {
@@ -1424,7 +1425,7 @@ async function checkForUpdates() {
 
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '<span class="btn-icon">🔄</span> Check for Updates';
+      btn.innerHTML = 'Check for Updates';
     }
 
     if (data.current_version) {
@@ -1439,7 +1440,7 @@ async function checkForUpdates() {
         badge.textContent = `Update Available: ${data.latest_version}`;
       }
       if (previewBox) previewBox.style.display = 'block';
-      if (updateTitle) updateTitle.textContent = `🎉 New version ${data.latest_version} available!`;
+      if (updateTitle) updateTitle.textContent = `New version ${data.latest_version} available!`;
       if (updateTag) updateTag.textContent = data.published_at ? new Date(data.published_at).toLocaleDateString() : '';
       if (updateNotes) updateNotes.textContent = data.release_notes || 'No release notes provided.';
       latestDownloadURL = data.download_url || '';
@@ -1462,7 +1463,7 @@ async function checkForUpdates() {
   } catch (err) {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '<span class="btn-icon">🔄</span> Check for Updates';
+      btn.innerHTML = 'Check for Updates';
     }
     if (badge) {
       badge.style.display = 'inline-block';
@@ -1489,7 +1490,7 @@ async function applyUpdate() {
     const data = await res.json();
     if (btnApply) {
       btnApply.disabled = false;
-      btnApply.innerHTML = '🚀 Install / Download Update';
+      btnApply.innerHTML = 'Install / Download Update';
     }
     if (data.path || data.message) {
       showToast(data.message || data.path || 'Update launched successfully!', 'success');
@@ -1497,7 +1498,7 @@ async function applyUpdate() {
   } catch (err) {
     if (btnApply) {
       btnApply.disabled = false;
-      btnApply.innerHTML = '🚀 Install / Download Update';
+      btnApply.innerHTML = 'Install / Download Update';
     }
     showToast('Failed to apply update: ' + err.message, 'error');
   }
@@ -1581,7 +1582,7 @@ async function saveRoutingSettings(e) {
       let modeText = '۲. بلک‌لیست (Bypass)';
       if (mode === 'proxy_all') modeText = '۱. عبور همه ترافیک (Proxy All)';
       if (mode === 'whitelist') modeText = '۳. وایت‌لیست (Proxy Only)';
-      showToast(`🔀 حالت مسیریابی به «${modeText}» تغییر یافت و اعمال شد.`, 'success');
+      showToast(`حالت مسیریابی به «${modeText}» تغییر یافت و اعمال شد.`, 'success');
       closeModal('routingModal');
       loadStatus();
     }
@@ -1758,10 +1759,10 @@ function showToast(msg, type = 'info') {
 
 // Helpers
 function getFlagEmoji(countryCode) {
-  if (!countryCode) return '🌐';
+  if (!countryCode) return '';
   const code = countryCode.toUpperCase();
-  if (code === 'CF' || code === 'CLOUDFLARE' || code === 'WW' || code === 'GLOBAL') return '☁️';
-  if (countryCode.length !== 2) return '🌐';
+  if (code === 'CF' || code === 'CLOUDFLARE' || code === 'WW' || code === 'GLOBAL') return '';
+  if (countryCode.length !== 2) return '';
   return String.fromCodePoint(code.charCodeAt(0) + 127397) + String.fromCodePoint(code.charCodeAt(1) + 127397);
 }
 
@@ -1872,11 +1873,11 @@ function populateIPDataModal(data) {
   }
 
   // Threat flags
-  updateThreatFlag('flagDatacenter', '🏢 Datacenter', data.is_datacenter);
-  updateThreatFlag('flagVPN', '🔒 VPN', data.is_vpn);
-  updateThreatFlag('flagProxy', '🌐 Proxy', data.is_proxy);
-  updateThreatFlag('flagTor', '🧅 Tor', data.is_tor);
-  updateThreatFlag('flagThreat', '⚠️ Threat', data.is_threat);
+  updateThreatFlag('flagDatacenter', 'Datacenter', data.is_datacenter);
+  updateThreatFlag('flagVPN', 'VPN', data.is_vpn);
+  updateThreatFlag('flagProxy', 'Proxy', data.is_proxy);
+  updateThreatFlag('flagTor', 'Tor', data.is_tor);
+  updateThreatFlag('flagThreat', 'Threat', data.is_threat);
 }
 
 function updateThreatFlag(elementId, label, isActive) {
@@ -1907,10 +1908,10 @@ async function checkAllTrustScores() {
 }
 
 function flagImg(code) {
-  if (!code) return '🌐 ';
+  if (!code) return '';
   const c = code.toUpperCase();
-  if (c === 'CF' || c === 'CLOUDFLARE' || c === 'WW' || c === 'GLOBAL') return '☁️ ';
-  if (code.length !== 2 || c === 'UN') return '🌐 ';
+  if (c === 'CF' || c === 'CLOUDFLARE' || c === 'WW' || c === 'GLOBAL') return '';
+  if (code.length !== 2 || c === 'UN') return '';
   return `<img class="flag-img" src="flags/${code.toLowerCase()}.svg" alt="${code}" loading="lazy" onerror="this.style.display='none'">`;
 }
 
@@ -1974,7 +1975,7 @@ function updateCleanIPUI(data) {
     }
     if (btnStart) {
       btnStart.disabled = false;
-      btnStart.innerHTML = '<span class="btn-icon">⚡</span> Start Clean IP Scan';
+      btnStart.innerHTML = 'Start Clean IP Scan';
     }
     if (btnCancel) btnCancel.style.display = 'none';
 
@@ -2004,9 +2005,9 @@ function renderCleanIPResults(ips) {
   if (btnConnectFastest) {
     btnConnectFastest.disabled = ips.length === 0;
     if (ips.length > 0) {
-      btnConnectFastest.innerHTML = `⚡ اتصال به سریع‌ترین (${ips[0].ip} - ${ips[0].latency}ms)`;
+      btnConnectFastest.innerHTML = `اتصال به سریع‌ترین (${ips[0].ip} - ${ips[0].latency}ms)`;
     } else {
-      btnConnectFastest.innerHTML = '⚡ اتصال به سریع‌ترین آی‌پی (Connect VPN)';
+      btnConnectFastest.innerHTML = 'اتصال به سریع‌ترین آی‌پی (Connect VPN)';
     }
   }
   if (btnSaveFastest) {
@@ -2050,18 +2051,18 @@ function renderCleanIPResults(ips) {
         </span>
       </td>
       <td>
-        <span class="cleanip-latency-pill ${latClass}">⚡ ${item.latency} ms</span>
+        <span class="cleanip-latency-pill ${latClass}">${item.latency} ms</span>
       </td>
       <td>
         <div class="table-actions" style="gap: 6px;">
           <button class="btn btn-sm btn-primary btn-connect-ip" data-ip="${escapeHTML(item.ip)}" data-lat="${item.latency}" title="اتصال مستقیم به اینترنت آزاد از طریق این آی‌پی تمیز">
-            ⚡ اتصال مستقیم
+            اتصال مستقیم
           </button>
           <button class="btn btn-sm btn-secondary btn-save-ip" data-ip="${escapeHTML(item.ip)}" data-lat="${item.latency}" title="افزودن به لیست کانفیگ‌های اصلی">
-            ➕ به کانفیگ‌ها
+            افزودن به کانفیگ‌ها
           </button>
           <button class="btn btn-sm btn-secondary btn-copy-ip" data-ip="${escapeHTML(item.ip)}" title="کپی آی‌پی">
-            📋
+            کپی
           </button>
         </div>
       </td>
@@ -2312,7 +2313,6 @@ async function loadAppPickerData(forceRefresh = false) {
   } catch (err) {
     listEl.innerHTML = `
       <div class="app-picker-empty">
-        <span style="font-size: 24px;">⚠️</span>
         <span>Failed to load active applications: ${escapeHTML(err.message)}</span>
         <button type="button" class="btn btn-secondary btn-sm" id="btnRetryAppPicker">Retry</button>
       </div>
@@ -2368,7 +2368,6 @@ function renderAppPickerList() {
   if (filtered.length === 0) {
     listEl.innerHTML = `
       <div class="app-picker-empty">
-        <span style="font-size: 24px;">🔍</span>
         <span>${query ? `No applications found matching "${escapeHTML(query)}"` : 'No applications available.'}</span>
       </div>
     `;

@@ -225,6 +225,24 @@ func TestPsiphonAndCleanIPFiltering(t *testing.T) {
 		t.Errorf("expected 2 configs for protocol 'clean-ip', got %d", totalClean)
 	}
 
+	// 2b. Filter with Protocol: "CDN IP" (and "cdn ip")
+	resCDN, totalCDN, err := db.GetConfigs(ConfigFilter{Protocol: "CDN IP"})
+	if err != nil {
+		t.Fatalf("failed to get configs for CDN IP: %v", err)
+	}
+	if totalCDN != 2 || len(resCDN) != 2 {
+		t.Errorf("expected 2 configs for protocol 'CDN IP', got %d", totalCDN)
+	}
+
+	// 2c. Filter with Tag: "CDN IP"
+	resTagCDN, totalTagCDN, err := db.GetConfigs(ConfigFilter{Tag: "CDN IP"})
+	if err != nil {
+		t.Fatalf("failed to get configs for tag CDN IP: %v", err)
+	}
+	if totalTagCDN != 2 || len(resTagCDN) != 2 {
+		t.Errorf("expected 2 configs for tag 'CDN IP', got %d", totalTagCDN)
+	}
+
 	// 3. Filter with Protocol: "vmess" should only return vmess-normal
 	resVmess, totalVmess, err := db.GetConfigs(ConfigFilter{Protocol: "vmess"})
 	if err != nil {

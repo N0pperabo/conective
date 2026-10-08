@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
@@ -454,4 +455,50 @@ func TestBuildCleanIPCandidates_CountryResolution(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanIP_IsFavorite_DefaultFalse(t *testing.T) {
+	node, err := CreateOrUpdateCleanIPNodeWithName(nil, "104.16.88.99", 50, "TestNode")
+	if err != nil {
+		t.Fatalf("CreateOrUpdateCleanIPNodeWithName failed: %v", err)
+	}
+	if node.IsFavorite {
+		t.Errorf("expected clean IP node IsFavorite = false, got true")
+	}
+
+	warpNode, err := CreateOrUpdateWarpNodeWithName(nil, "104.16.88.99", 2408, 50, "WarpNode")
+	if err != nil {
+		t.Fatalf("CreateOrUpdateWarpNodeWithName failed: %v", err)
+	}
+	if warpNode.IsFavorite {
+		t.Errorf("expected warp node IsFavorite = false, got true")
+	}
+
+	candidates := BuildCleanIPCandidates(nil, "104.16.88.99", 50, 5)
+	if len(candidates) == 0 {
+		t.Fatalf("expected candidates, got 0")
+	}
+	for _, c := range candidates {
+		if c.IsFavorite {
+			t.Errorf("candidate %s expected IsFavorite = false, got true", c.Name)
+		}
+	}
+}
+
+func TestManager_GetProgress_NoLimitClamp(t *testing.T) {
+	mgr := NewManager()
+	mgr.mu.Lock()
+	for i := 0; i < 50; i++ {
+		mgr.bestIPs = append(mgr.bestIPs, IPResult{
+			IP:      fmt.Sprintf("104.16.0.%d", i),
+			Latency: 10 + i,
+		})
+	}
+	mgr.mu.Unlock()
+
+	p := mgr.GetProgress()
+	if len(p.BestIPs) != 50 {
+		t.Fatalf("expected 50 best IPs in progress (no limit clamp), got %d", len(p.BestIPs))
+	}
+}
+
 

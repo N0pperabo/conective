@@ -182,12 +182,16 @@ func (m *Manager) ImportContent(content string, sourceName string) (int, int, er
 		if ip, port, name, ok := parseCleanIPLine(l); ok {
 			cleanNode, err := cleanip.CreateOrUpdateCleanIPNodeWithName(m.db, ip, 120, name)
 			if err == nil && cleanNode != nil {
+				cleanNode.AddTag(models.TagCDNIP)
+				if sourceName != "" && sourceName != "Manual Input" {
+					cleanNode.Source = sourceName
+				}
 				if port > 0 && port != cleanNode.Port {
 					cleanNode.Port = port
 					cleanNode.RawLink = fmt.Sprintf("psiphon://%s:%d?fronting=cdn#Clean-IP-%s", ip, port, ip)
-					if m.db != nil {
-						_, _ = m.db.UpsertConfig(cleanNode)
-					}
+				}
+				if m.db != nil {
+					_, _ = m.db.UpsertConfig(cleanNode)
 				}
 				cleanIPNodes = append(cleanIPNodes, cleanNode)
 			}
@@ -203,12 +207,16 @@ func (m *Manager) ImportContent(content string, sourceName string) (int, int, er
 						if ip, port, name, ok := parseCleanIPLine(subL); ok {
 							cleanNode, err := cleanip.CreateOrUpdateCleanIPNodeWithName(m.db, ip, 120, name)
 							if err == nil && cleanNode != nil {
+								cleanNode.AddTag(models.TagCDNIP)
+								if sourceName != "" && sourceName != "Manual Input" {
+									cleanNode.Source = sourceName
+								}
 								if port > 0 && port != cleanNode.Port {
 									cleanNode.Port = port
 									cleanNode.RawLink = fmt.Sprintf("psiphon://%s:%d?fronting=cdn#Clean-IP-%s", ip, port, ip)
-									if m.db != nil {
-										_, _ = m.db.UpsertConfig(cleanNode)
-									}
+								}
+								if m.db != nil {
+									_, _ = m.db.UpsertConfig(cleanNode)
 								}
 								cleanIPNodes = append(cleanIPNodes, cleanNode)
 							}

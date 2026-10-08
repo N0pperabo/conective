@@ -21,25 +21,25 @@
 
       <div class="header-actions">
         <button id="btnScan" class="btn btn-primary btn-glow">
-          <span class="btn-icon">⚡</span> Scan Free Nodes
+          Scan Free Nodes
         </button>
         <button id="btnSources" class="btn btn-secondary">
-          <span class="btn-icon">🌐</span> Sources (<span id="activeSourcesCount">0</span>)
+          Sources (<span id="activeSourcesCount">0</span>)
         </button>
         <button id="btnSub" class="btn btn-secondary">
-          <span class="btn-icon">📦</span> Subscriptions
+          Subscriptions
         </button>
         <button id="btnRouting" class="btn btn-secondary">
-          <span class="btn-icon">🔀</span> Routing
+          Routing
         </button>
         <button id="btnHistory" class="btn btn-secondary">
-          <span class="btn-icon">📜</span> History
+          History
         </button>
         <button id="btnCleanIP" class="btn btn-secondary" title="Cloudflare Clean IP & CDN Fronting Scanner">
-          <span class="btn-icon">☁️</span> CDN Clean IP
+          CDN Clean IP
         </button>
         <button id="btnSettings" class="btn btn-secondary">
-          <span class="btn-icon">⚙</span> Settings
+          Settings
         </button>
       </div>
     </header>
@@ -56,11 +56,11 @@
         </div>
 
         <div class="node-quick-stats" id="activeNodeStats" style="display: none;">
-          <div class="stat-pill"><span id="activeFlag">🌐</span> <span id="activeCountry">Unknown</span></div>
+          <div class="stat-pill"><span id="activeFlag"></span> <span id="activeCountry">Unknown</span></div>
           <div class="stat-pill protocol-badge" id="activeProto">VLESS</div>
           <div class="stat-pill latency-pill" id="activeLatency">-- ms</div>
           <div class="stat-pill ip-pill" id="activeExitIP">IP: --</div>
-          <div class="stat-pill trust-pill" id="activeTrust" style="display: none;">🛡️ Trust: --</div>
+          <div class="stat-pill trust-pill" id="activeTrust" style="display: none;">Trust: --</div>
         </div>
       </div>
 
@@ -69,12 +69,12 @@
           <label class="tun-toggle-btn" id="lblTunToggle" title="Enable TUN Mode: Routes ALL Windows traffic (apps, games, cmd, browsers) through VPN (Requires Run as Administrator)">
             <input type="checkbox" id="chkHeroTunMode">
             <span class="tun-switch"></span>
-            <span class="tun-label-text">🛡️ TUN Mode</span>
+            <span class="tun-label-text">TUN Mode</span>
           </label>
           <label class="tun-toggle-btn gaming-toggle-btn" id="lblGamingToggle" title="Enable Gaming Mode: Low-latency TUN MTU (1400), TCP_NODELAY, UDP packet acceleration for gaming">
             <input type="checkbox" id="chkHeroGamingMode">
             <span class="tun-switch gaming-switch"></span>
-            <span class="tun-label-text">🎮 Gaming Mode</span>
+            <span class="tun-label-text">Gaming Mode</span>
           </label>
         </div>
 
@@ -87,7 +87,7 @@
           <div class="status-badges-row">
             <span class="sysproxy-badge" id="badgeSysProxy">System Proxy: ON</span>
             <span class="tun-status-badge" id="badgeTunStatus" style="display: none;">TUN VPN: ACTIVE</span>
-            <span class="lan-status-badge" id="badgeLanStatus" style="display: none;">📡 LAN SHARE</span>
+            <span class="lan-status-badge" id="badgeLanStatus" style="display: none;">LAN SHARE</span>
           </div>
         </div>
         <button id="btnConnect" class="btn btn-connect" disabled>CONNECT</button>
@@ -178,14 +178,14 @@
 
         <div class="filter-controls">
           <div class="filter-tabs">
-            <button type="button" id="tabFavorites" class="filter-tab tab-fav" title="Filter by favorite nodes (⭐)">
-              ⭐ Favorites <span id="favCountBadge" class="tab-badge" style="display: none;">0</span>
+            <button type="button" id="tabFavorites" class="filter-tab tab-fav" title="Filter by favorite nodes">
+              Favorites <span id="favCountBadge" class="tab-badge" style="display: none;">0</span>
             </button>
           </div>
 
           <select id="filterStatus">
             <option value="working" selected>Working Only</option>
-            <option value="favorites">⭐ Favorites Only</option>
+            <option value="favorites">Favorites Only</option>
             <option value="all">All Nodes</option>
             <option value="untested">Untested</option>
             <option value="dead">Dead</option>
@@ -193,7 +193,7 @@
 
           <select id="filterProto">
             <option value="all">All Protocols</option>
-            <option value="psiphon">Psiphon (Clean IP)</option>
+            <option value="psiphon">CDN IP</option>
             <option value="vless">VLESS</option>
             <option value="vmess">VMess</option>
             <option value="trojan">Trojan</option>
@@ -213,9 +213,9 @@
           </select>
 
           <button id="btnPingAll" class="btn btn-primary btn-sm btn-glow" title="Ping test all candidate configs concurrently and update their latencies live">
-            <span class="btn-icon">⚡</span> Ping All
+            Ping All
           </button>
-          <button id="btnCheckAllTrust" class="btn btn-secondary btn-sm" title="Check ipdata Trust Score for all working nodes">🛡️ Check Trust</button>
+          <button id="btnCheckAllTrust" class="btn btn-secondary btn-sm" title="Check ipdata Trust Score for all working nodes">Check Trust</button>
           <button id="btnClearNodes" class="btn btn-outline-danger btn-sm" title="Clear all configs">Clear All</button>
         </div>
       </div>
@@ -303,7 +303,7 @@
   <div id="routingModal" class="modal">
     <div class="modal-content modal-lg">
       <div class="modal-header">
-        <h3>🔀 Routing & Split Tunneling (مسیریابی هوشمند)</h3>
+        <h3>Routing & Split Tunneling (مسیریابی هوشمند)</h3>
         <button class="modal-close" data-close="routingModal">&times;</button>
       </div>
       <div class="modal-body">
@@ -340,7 +340,6 @@
           <!-- Section 1: Proxy All (هیچی لازم نیست) -->
           <div id="sectionMode1" class="mode-section" style="display: none;">
             <div class="mode-info-box">
-              <div class="mode-info-icon">🌐</div>
               <div>
                 <h4>حالت ۱: عبور تمام ترافیک از فیلترشکن (Proxy All)</h4>
                 <p>در این حالت هیچ استثنایی اعمال نمی‌شود و کل ترافیک سیستم از فیلترشکن عبور خواهد کرد. برای این حالت نیازی به تعریف لیست نیست.</p>
@@ -351,7 +350,7 @@
           <!-- Section 2: Blacklist (ترافیک از این‌ها عبور نکنه) -->
           <div id="sectionMode2" class="mode-section">
             <div class="section-title-badge badge-blacklist">
-              <span>🚫 بلک‌لیست: مواردی که نباید از فیلترشکن عبور کنند (Direct / Bypass)</span>
+              <span>بلک‌لیست: مواردی که نباید از فیلترشکن عبور کنند (Direct / Bypass)</span>
               <small>این برنامه‌ها و سایت‌ها مستقیماً با اینترنت بدون فیلترشکن و با آی‌پی ایران و کمترین پینگ کار خواهند کرد.</small>
             </div>
             <div class="form-row">
@@ -359,7 +358,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                   <label style="margin-bottom: 0;">برنامه‌های بلک‌لیست (Direct Apps)</label>
                   <button type="button" class="btn btn-secondary btn-xs btn-browse-active-apps" data-target="direct" title="Browse running & installed apps to bypass proxy">
-                    <span class="btn-icon">🔍</span> Browse Active Apps
+                    Browse Active Apps
                   </button>
                 </div>
                 <textarea id="routeBlacklistApps" rows="6" placeholder="cs2.exe&#10;valorant.exe&#10;dota2.exe&#10;idman.exe" style="font-family: monospace; font-size: 12px;"></textarea>
@@ -379,7 +378,7 @@
           <!-- Section 3: Whitelist (ترافیک فقط از این‌ها عبور کنه) -->
           <div id="sectionMode3" class="mode-section" style="display: none;">
             <div class="section-title-badge badge-whitelist">
-              <span>✅ وایت‌لیست: مواردی که فقط باید از فیلترشکن عبور کنند (Proxy Only)</span>
+              <span>وایت‌لیست: مواردی که فقط باید از فیلترشکن عبور کنند (Proxy Only)</span>
               <small>فقط برنامه‌ها و سایت‌هایی که در زیر وارد می‌کنید از فیلترشکن رد می‌شوند و مابقی سیستم مستقیم وصل است.</small>
             </div>
             <div class="form-row">
@@ -387,7 +386,7 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                   <label style="margin-bottom: 0;">برنامه‌های وایت‌لیست (Proxy Apps)</label>
                   <button type="button" class="btn btn-secondary btn-xs btn-browse-active-apps" data-target="proxy" title="Browse running & installed apps to proxy">
-                    <span class="btn-icon">🔍</span> Browse Active Apps
+                    Browse Active Apps
                   </button>
                 </div>
                 <textarea id="routeWhitelistApps" rows="6" placeholder="telegram.exe&#10;discord.exe&#10;chrome.exe&#10;spotify.exe" style="font-family: monospace; font-size: 12px;"></textarea>
@@ -478,8 +477,8 @@
 
           <div id="lanShareInfoBox" class="lan-share-box" style="display: none;">
             <div class="lan-share-header">
-              <span class="lan-badge">📡 LAN Proxy Ready</span>
-              <button type="button" id="btnRefreshLANInfo" class="btn btn-xs btn-secondary" title="Refresh local IP detection">🔄 Refresh</button>
+              <span class="lan-badge">LAN Proxy Ready</span>
+              <button type="button" id="btnRefreshLANInfo" class="btn btn-xs btn-secondary" title="Refresh local IP detection">Refresh</button>
             </div>
             <div class="lan-share-details">
               <div class="lan-row">
@@ -489,12 +488,12 @@
               <div class="lan-row">
                 <span class="lan-label">HTTP Proxy:</span>
                 <span class="lan-value font-mono" id="lanHttpProxyText">http://127.0.0.1:10809</span>
-                <button type="button" class="btn-copy-small" id="btnCopyLanHttp" title="Copy HTTP Proxy">📋</button>
+                <button type="button" class="btn-copy-small" id="btnCopyLanHttp" title="Copy HTTP Proxy">Copy</button>
               </div>
               <div class="lan-row">
                 <span class="lan-label">SOCKS5 Proxy:</span>
                 <span class="lan-value font-mono" id="lanSocksProxyText">127.0.0.1:10808</span>
-                <button type="button" class="btn-copy-small" id="btnCopyLanSocks" title="Copy SOCKS5 Proxy">📋</button>
+                <button type="button" class="btn-copy-small" id="btnCopyLanSocks" title="Copy SOCKS5 Proxy">Copy</button>
               </div>
             </div>
             <div class="lan-guide">
@@ -571,7 +570,7 @@
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span id="updateStatusBadge" class="status-badge" style="display: none; padding: 3px 8px; border-radius: 4px; font-size: 11px;"></span>
                 <button type="button" id="btnCheckUpdate" class="btn btn-secondary btn-sm">
-                  <span class="btn-icon">🔄</span> Check for Updates
+                  Check for Updates
                 </button>
               </div>
             </div>
@@ -585,7 +584,7 @@
               <div id="updateNotes" style="font-size: 11px; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.25); padding: 8px; border-radius: 4px; white-space: pre-wrap; font-family: monospace; color: #ddd; margin-bottom: 10px;"></div>
               <div style="display: flex; gap: 8px; justify-content: flex-end;">
                 <a id="btnReleaseLink" href="#" target="_blank" class="btn btn-outline-secondary btn-sm" style="display: none;">View Release</a>
-                <button type="button" id="btnApplyUpdate" class="btn btn-primary btn-sm">🚀 Install / Download Update</button>
+                <button type="button" id="btnApplyUpdate" class="btn btn-primary btn-sm">Install / Download Update</button>
               </div>
             </div>
           </div>
@@ -672,7 +671,6 @@
     <div class="modal-content ipdata-modal-content">
       <div class="modal-header">
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:22px;">🛡️</span>
           <h3>ipdata.co Threat Intelligence</h3>
         </div>
         <button class="modal-close" data-close="ipdataModal">&times;</button>
@@ -730,17 +728,17 @@
 
           <!-- Threat badges -->
           <div class="ipdata-pill-row">
-            <span class="ipdata-flag-pill" id="flagDatacenter">🏢 Datacenter: Yes</span>
-            <span class="flag-pill" id="flagVPN">🔒 VPN: Yes</span>
-            <span class="flag-pill" id="flagProxy">🌐 Proxy: No</span>
-            <span class="flag-pill" id="flagTor">🧅 Tor: No</span>
-            <span class="flag-pill" id="flagThreat">⚠️ Threat: No</span>
+            <span class="ipdata-flag-pill" id="flagDatacenter">Datacenter: Yes</span>
+            <span class="flag-pill" id="flagVPN">VPN: Yes</span>
+            <span class="flag-pill" id="flagProxy">Proxy: No</span>
+            <span class="flag-pill" id="flagTor">Tor: No</span>
+            <span class="flag-pill" id="flagThreat">Threat: No</span>
           </div>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:18px;">
           <button id="btnRecheckIPData" class="btn btn-primary btn-sm">
-            <span class="btn-icon">🔄</span> Re-check on ipdata.co
+            Re-check on ipdata.co
           </button>
           <button class="btn btn-secondary btn-sm" data-close="ipdataModal">Close</button>
         </div>
@@ -753,7 +751,6 @@
     <div class="modal-content modal-lg">
       <div class="modal-header">
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:22px;">☁️</span>
           <h3>Cloudflare Clean IP / CDN Fronting (اتصال مستقیم فیلترشکن)</h3>
         </div>
         <button class="modal-close" data-close="cleanIPModal">&times;</button>
@@ -798,7 +795,7 @@
               Cancel Scan
             </button>
             <button id="btnStartCleanIP" class="btn btn-primary btn-glow">
-              <span class="btn-icon">⚡</span> Start Clean IP Scan
+              Start Clean IP Scan
             </button>
           </div>
         </div>
@@ -844,13 +841,13 @@
           <h4 style="font-size: 14px; font-weight: 600;">Fastest Clean Edge IPs (<span id="cleanIPFoundCount">0</span> found)</h4>
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <button id="btnSaveFastestCleanIP" class="btn btn-secondary btn-sm" disabled title="افزودن سریع‌ترین آی‌پی به کانفیگ‌های اصلی">
-              ➕ افزودن سریع‌ترین به کانفیگ‌ها
+              افزودن سریع‌ترین به کانفیگ‌ها
             </button>
             <button id="btnSaveAllCleanIP" class="btn btn-secondary btn-sm" disabled title="افزودن همه آی‌پی‌های تمیز به کانفیگ‌های اصلی">
-              ➕ افزودن همه به کانفیگ‌ها
+              افزودن همه به کانفیگ‌ها
             </button>
             <button id="btnConnectFastestCleanIP" class="btn btn-primary btn-sm btn-glow" disabled>
-              ⚡ اتصال به سریع‌ترین آی‌پی (Connect VPN)
+              اتصال به سریع‌ترین آی‌پی (Connect VPN)
             </button>
           </div>
         </div>
@@ -884,7 +881,6 @@
     <div class="modal-content modal-lg app-picker-modal">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 20px;">🖥️</span>
           <div>
             <h3 style="margin: 0; font-size: 15px;">Visual App Picker (انتخاب برنامه‌ها برای مسیریابی)</h3>
             <span style="font-size: 11px; color: var(--text-muted);">Select active Windows processes or installed apps for split tunneling</span>
@@ -897,27 +893,26 @@
         <!-- Top Toolbar: Search + Tabs + Refresh -->
         <div class="app-picker-toolbar">
           <div class="app-picker-search-box">
-            <span class="app-picker-search-icon">🔍</span>
-            <input type="text" id="appPickerSearch" placeholder="Search application by name or exe (e.g. chrome, telegram, cs2)..." autocomplete="off">
+            <input type="text" id="appPickerSearch" placeholder="Search application by name or exe (e.g. chrome, telegram, cs2)..." autocomplete="off" style="padding-left: 12px;">
             <button type="button" id="appPickerClearSearch" class="app-picker-clear-btn" style="display: none;">&times;</button>
           </div>
 
           <div class="app-picker-tabs">
             <button type="button" class="app-picker-tab is-active" data-filter="running">
-              <span>⚡ Active Running</span>
+              <span>Active Running</span>
               <span class="app-picker-badge" id="appCountRunning">0</span>
             </button>
             <button type="button" class="app-picker-tab" data-filter="installed">
-              <span>📦 All Installed</span>
+              <span>All Installed</span>
               <span class="app-picker-badge" id="appCountInstalled">0</span>
             </button>
             <button type="button" class="app-picker-tab" data-filter="all">
-              <span>🌐 All Apps</span>
+              <span>All Apps</span>
             </button>
           </div>
 
           <button type="button" id="appPickerRefreshBtn" class="btn btn-secondary btn-sm" title="Refresh active processes">
-            <span class="btn-icon">🔄</span> Refresh
+            Refresh
           </button>
         </div>
 

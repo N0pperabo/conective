@@ -177,7 +177,7 @@ func (c *Controller) checkActiveConnection() {
 
 	// Psiphon handles its own internal routing, server hopping, and reconnection logic.
 	// Never trigger automatic failover reconnect loops when Psiphon is active.
-	if activeNode.Protocol == "psiphon" || activeNode.Source == "Clean IP Fronting" || strings.HasPrefix(activeNode.Identity, "cleanip-") || c.runner.IsPsiphon() {
+	if activeNode.IsCDNIP() || activeNode.Protocol == "psiphon" || activeNode.Source == "Clean IP Fronting" || strings.HasPrefix(activeNode.Identity, "cleanip-") || c.runner.IsPsiphon() {
 		return
 	}
 
@@ -195,7 +195,7 @@ func (c *Controller) handleFailover(failedNode *models.Config) {
 		return
 	}
 
-	if failedNode != nil && (failedNode.Protocol == "psiphon" || failedNode.Source == "Clean IP Fronting" || strings.HasPrefix(failedNode.Identity, "cleanip-")) {
+	if failedNode != nil && (failedNode.IsCDNIP() || failedNode.Protocol == "psiphon" || failedNode.Source == "Clean IP Fronting" || strings.HasPrefix(failedNode.Identity, "cleanip-")) {
 		c.mu.Unlock()
 		log.Printf("[Failover] Psiphon active; skipping automatic failover to prevent reconnect loop.")
 		return
@@ -241,7 +241,7 @@ func (c *Controller) handleFailover(failedNode *models.Config) {
 
 	// Iteratively try available backup candidates up to maxTries without recursion
 	for _, cand := range candidates {
-		if cand.Identity == failedNode.Identity || cand.Protocol == "psiphon" || cand.Source == "Clean IP Fronting" || strings.HasPrefix(cand.Identity, "cleanip-") {
+		if cand.Identity == failedNode.Identity || cand.IsCDNIP() || cand.Protocol == "psiphon" || cand.Source == "Clean IP Fronting" || strings.HasPrefix(cand.Identity, "cleanip-") {
 			continue
 		}
 		cCopy := cand

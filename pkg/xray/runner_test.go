@@ -202,12 +202,14 @@ func TestPsiphonTunConfigValidity(t *testing.T) {
 func TestPsiphonNodeDetection(t *testing.T) {
 	nodes := []*models.Config{
 		{Protocol: "psiphon", Server: "1.2.3.4"},
+		{Protocol: "CDN IP", Server: "1.2.3.4"},
+		{Protocol: "vless", Tags: "CDN IP", Server: "1.2.3.4"},
 		{Protocol: "vless", Identity: "cleanip-123", Server: "1.2.3.4"},
 		{Protocol: "vmess", Source: "Clean IP Fronting", Server: "1.2.3.4"},
 	}
 
 	for _, n := range nodes {
-		isPsiphon := n.Protocol == "psiphon" || strings.HasPrefix(n.Identity, "cleanip-") || n.Source == "Clean IP Fronting"
+		isPsiphon := n.IsCDNIP() || n.Protocol == "psiphon" || strings.HasPrefix(n.Identity, "cleanip-") || n.Source == "Clean IP Fronting"
 		if !isPsiphon {
 			t.Errorf("node %+v should be detected as Psiphon/Clean IP node", n)
 		}

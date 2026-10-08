@@ -67,4 +67,19 @@ func TestFailoverSkipsPsiphon(t *testing.T) {
 	if ctrl.failCount != 0 {
 		t.Fatalf("expected failCount to remain 0 for cleanip- prefixed node, got %d", ctrl.failCount)
 	}
+
+	// Test 4: failedNode with Tag "CDN IP" or Protocol "CDN IP"
+	cdnIPNode := &models.Config{
+		Identity: "custom-cdn-ip-4",
+		Protocol: "CDN IP",
+		Tags:     "CDN IP",
+		Name:     "CDN IP Fronting",
+		Server:   "104.16.1.4",
+	}
+
+	ctrl.failCount = 0
+	ctrl.handleFailover(cdnIPNode)
+	if ctrl.failCount != 0 {
+		t.Fatalf("expected failCount to remain 0 for CDN IP node, got %d", ctrl.failCount)
+	}
 }

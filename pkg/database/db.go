@@ -512,6 +512,15 @@ func (d *DB) UpdateIPData(id int64, exitIP string, trustScore int, riskLevel str
 	return err
 }
 
+// UpdateLastTested updates the last_tested timestamp for a config without altering its status, score, or identity.
+func (d *DB) UpdateLastTested(id int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`UPDATE configs SET last_tested = ? WHERE id = ?`, time.Now().Format("2006-01-02 15:04:05"), id)
+	return err
+}
+
 func (d *DB) ToggleFavorite(id int64) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -570,12 +579,11 @@ func (d *DB) GetConfigs(f ConfigFilter) ([]models.Config, int, error) {
 		args = append(args, f.Status)
 	}
 	if f.Protocol != "" && f.Protocol != "all" {
-		protoLower := strings.ToLower(f.Protocol)
-		if protoLower == "psiphon" || protoLower == "clean-ip" {
-			where = append(where, "(protocol = 'psiphon' OR tags LIKE '%psiphon%' OR tags LIKE '%clean-ip%')")
+		if models.IsCDNIPProtocol(f.Protocol) {
+			where = append(where, "(protocol = 'psiphon' OR protocol = 'CDN IP' OR tags LIKE '%psiphon%' OR tags LIKE '%clean-ip%' OR tags LIKE '%CDN IP%' OR tags LIKE '%cdn-fronting%')")
 		} else {
 			where = append(where, "protocol = ?")
-			args = append(args, protoLower)
+			args = append(args, strings.ToLower(f.Protocol))
 		}
 	}
 	if f.Country != "" && f.Country != "all" {
@@ -594,8 +602,12 @@ func (d *DB) GetConfigs(f ConfigFilter) ([]models.Config, int, error) {
 		where = append(where, "is_favorite = 1")
 	}
 	if f.Tag != "" {
-		where = append(where, "tags LIKE ?")
-		args = append(args, "%"+f.Tag+"%")
+		if models.IsCDNIPTag(f.Tag) {
+			where = append(where, "(tags LIKE '%CDN IP%' OR tags LIKE '%cdn-ip%' OR tags LIKE '%clean-ip%' OR tags LIKE '%psiphon%' OR tags LIKE '%cdn-fronting%' OR protocol = 'psiphon' OR protocol = 'CDN IP')")
+		} else {
+			where = append(where, "tags LIKE ?")
+			args = append(args, "%"+f.Tag+"%")
+		}
 	}
 	if f.Search != "" {
 		where = append(where, "(name LIKE ? OR server LIKE ? OR country_name LIKE ? OR protocol LIKE ? OR tags LIKE ?)")
@@ -703,8 +715,12 @@ func (d *DB) GetConfigIDs(f ConfigFilter) ([]int64, error) {
 		args = append(args, f.Status)
 	}
 	if f.Protocol != "" && f.Protocol != "all" {
-		where = append(where, "protocol = ?")
-		args = append(args, strings.ToLower(f.Protocol))
+		if models.IsCDNIPProtocol(f.Protocol) {
+			where = append(where, "(protocol = 'psiphon' OR protocol = 'CDN IP' OR tags LIKE '%psiphon%' OR tags LIKE '%clean-ip%' OR tags LIKE '%CDN IP%' OR tags LIKE '%cdn-fronting%')")
+		} else {
+			where = append(where, "protocol = ?")
+			args = append(args, strings.ToLower(f.Protocol))
+		}
 	}
 	if f.Country != "" && f.Country != "all" {
 		where = append(where, "country = ?")

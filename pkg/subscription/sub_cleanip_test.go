@@ -275,11 +275,17 @@ func TestImportContent_CleanIPAllFormats(t *testing.T) {
 		if c.Status != "working" {
 			t.Errorf("node %s status = %q, want 'working'", c.Server, c.Status)
 		}
-		if !c.IsFavorite {
-			t.Errorf("node %s expected IsFavorite = true", c.Server)
+		if c.IsFavorite {
+			t.Errorf("node %s expected IsFavorite = false", c.Server)
 		}
 		if !strings.Contains(c.Tags, "clean-ip") {
 			t.Errorf("node %s expected tags containing 'clean-ip', got %q", c.Server, c.Tags)
+		}
+		if !c.HasTag("CDN IP") {
+			t.Errorf("node %s expected tag 'CDN IP', got %q", c.Server, c.Tags)
+		}
+		if !c.IsCDNIP() {
+			t.Errorf("node %s expected IsCDNIP() = true", c.Server)
 		}
 
 		switch c.Server {

@@ -13,6 +13,7 @@ import (
 	"freenode/pkg/cleanip"
 	"freenode/pkg/database"
 	"freenode/pkg/models"
+	"freenode/pkg/subscription"
 	"freenode/pkg/xray"
 )
 
@@ -395,6 +396,108 @@ func TestSettings_CleanIPAndPersistence(t *testing.T) {
 		}
 		if set.TestConcurrency != 300 {
 			t.Errorf("expected TestConcurrency to remain 300, got %d", set.TestConcurrency)
+		}
+	}
+}
+
+func TestCleanIP_ProtocolAndTagQuerying(t *testing.T) {
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// 1. Save a clean IP node
+	node, err := cleanip.CreateOrUpdateCleanIPNodeWithName(s.db, "104.16.88.99", 45, "CF Edge Node")
+	if err != nil {
+		t.Fatalf("failed creating clean IP node: %v", err)
+	}
+	if !node.HasTag("CDN IP") {
+		t.Errorf("expected node to have tag 'CDN IP', got %q", node.Tags)
+	}
+	if !node.IsCDNIP() {
+		t.Errorf("expected node.IsCDNIP() = true")
+	}
+
+	// Also insert a normal VMess node for contrast
+	vmessNode := &models.Config{
+		Identity: "vmess-contrast-1",
+		Protocol: "vmess",
+		Name:     "Standard VMess",
+		Server:   "1.1.1.1",
+		Port:     443,
+		Tags:     "standard",
+		Status:   "working",
+		Latency:  100,
+	}
+	_, _ = s.db.UpsertConfig(vmessNode)
+
+	// 2. Query /api/nodes?protocol=CDN IP
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/nodes?protocol=CDN%20IP", nil)
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/nodes?protocol=CDN IP failed: %d", w.Code)
+		}
+		var resp struct {
+			Items []models.Config `json:"items"`
+			Total int             `json:"total"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp.Total != 1 || len(resp.Items) != 1 || resp.Items[0].Server != "104.16.88.99" {
+			t.Errorf("expected 1 CDN IP node, got total=%d items=%d", resp.Total, len(resp.Items))
+		}
+	}
+
+	// 3. Query /api/nodes?protocol=psiphon
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/nodes?protocol=psiphon", nil)
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/nodes?protocol=psiphon failed: %d", w.Code)
+		}
+		var resp struct {
+			Items []models.Config `json:"items"`
+			Total int             `json:"total"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp.Total != 1 || len(resp.Items) != 1 || resp.Items[0].Server != "104.16.88.99" {
+			t.Errorf("expected 1 psiphon node, got total=%d items=%d", resp.Total, len(resp.Items))
+		}
+	}
+
+	// 4. Query /api/nodes?tag=CDN IP
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/nodes?tag=CDN%20IP", nil)
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/nodes?tag=CDN IP failed: %d", w.Code)
+		}
+		var resp struct {
+			Items []models.Config `json:"items"`
+			Total int             `json:"total"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp.Total != 1 || len(resp.Items) != 1 || resp.Items[0].Server != "104.16.88.99" {
+			t.Errorf("expected 1 node matching tag 'CDN IP', got total=%d items=%d", resp.Total, len(resp.Items))
+		}
+	}
+
+	// 5. Query /api/subscription/export?protocol=CDN IP
+	{
+		s.subMgr = subscription.NewManager(s.db)
+		req := httptest.NewRequest(http.MethodGet, "/api/subscription/export?protocol=CDN%20IP", nil)
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("export protocol=CDN IP failed: %d", w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, "104.16.88.99") {
+			t.Errorf("export missing 104.16.88.99, got: %s", body)
+		}
+		if strings.Contains(body, "1.1.1.1") {
+			t.Errorf("export should not contain non-CDN IP node, got: %s", body)
 		}
 	}
 }

@@ -252,11 +252,7 @@ func (m *Manager) GetProgress() Progress {
 	defer m.mu.RUnlock()
 
 	p := m.progress
-	// Include top 30 best IPs in progress payload for live UI rendering
 	limit := len(m.bestIPs)
-	if limit > 30 {
-		limit = 30
-	}
 	p.BestIPs = make([]IPResult, limit)
 	copy(p.BestIPs, m.bestIPs[:limit])
 	return p
@@ -724,8 +720,8 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 		Latency:     latency,
 		Status:      "working",
 		Score:       1000,
-		IsFavorite:  true,
-		Tags:        "clean-ip,psiphon,cdn-fronting",
+		IsFavorite:  false,
+		Tags:        "CDN IP,clean-ip,psiphon,cdn-fronting",
 		FirstSeen:   time.Now(),
 		LastSeen:    time.Now(),
 		LastTested:  time.Now(),

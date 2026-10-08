@@ -101,8 +101,8 @@ func BuildCleanIPCandidates(db *database.DB, cleanIP string, latency, max int) [
 		n.Latency = latency
 		n.Status = "working"
 		n.Score = 1000
-		n.IsFavorite = true
-		n.Tags = "clean-ip,cdn-fronting,cloudflare"
+		n.IsFavorite = false
+		n.Tags = "CDN IP,clean-ip,cdn-fronting,cloudflare"
 		n.LastTested = time.Now()
 		if err := ApplyCleanIP(&n, cleanIP); err != nil {
 			continue
@@ -150,8 +150,8 @@ func BuildCleanIPCandidates(db *database.DB, cleanIP string, latency, max int) [
 			Latency:     latency,
 			Status:      "working",
 			Score:       1000,
-			IsFavorite:  true,
-			Tags:        "clean-ip,cdn-fronting,cloudflare,worker",
+			IsFavorite:  false,
+			Tags:        "CDN IP,clean-ip,cdn-fronting,cloudflare,worker",
 			FirstSeen:   time.Now(),
 			LastSeen:    time.Now(),
 			LastTested:  time.Now(),
