@@ -128,7 +128,7 @@ func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
 	}
 
 	if r.cleanIP != "" && r.cleanIP != "auto" {
-		args = append(args, "--psiphon-cdn-ips", r.cleanIP)
+		args = append(args, "--psiphon-mode", "cdn", "--psiphon-cdn-ips", r.cleanIP)
 	}
 
 	cmd := exec.Command(aetherBin, args...)
