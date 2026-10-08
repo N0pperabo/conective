@@ -225,3 +225,49 @@ func TestStation(t *testing.T) {
 		}
 	}
 }
+
+func TestSetWindowIcon(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	hInst, _, _ := procGetModuleHandleW.Call(0)
+	className := windows.StringToUTF16Ptr("TestIconClass")
+	wc := WNDCLASSEXW{
+		CbSize:        uint32(unsafe.Sizeof(WNDCLASSEXW{})),
+		HInstance:     windows.Handle(hInst),
+		LpszClassName: className,
+		LpfnWndProc:   windows.NewCallback(func(hwnd, msg, wParam, lParam uintptr) uintptr {
+			r, _, _ := procDefWindowProcW.Call(hwnd, msg, wParam, lParam)
+			return r
+		}),
+	}
+	procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+
+	hwnd, _, _ := procCreateWindowExW.Call(
+		0,
+		uintptr(unsafe.Pointer(className)),
+		uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("Test Window Icon"))),
+		0,
+		0, 0, 100, 100,
+		0, 0,
+		hInst,
+		0,
+	)
+	if hwnd == 0 {
+		t.Fatalf("failed to create test window")
+	}
+	defer procDestroyWindow.Call(hwnd)
+
+	if err := SetWindowIcon(hwnd, assets.AppIcon); err != nil {
+		t.Fatalf("SetWindowIcon failed: %v", err)
+	}
+
+	// Also verify with nil hwnd or empty iconBytes doesn't error
+	if err := SetWindowIcon(0, assets.AppIcon); err != nil {
+		t.Fatalf("SetWindowIcon with 0 hwnd failed: %v", err)
+	}
+	if err := SetWindowIcon(hwnd, nil); err != nil {
+		t.Fatalf("SetWindowIcon with nil bytes failed: %v", err)
+	}
+}
+

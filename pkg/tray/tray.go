@@ -284,9 +284,13 @@ func (t *Tray) AttachWindow(hwnd uintptr, isMinimizeEnabled func() bool) {
 func (t *Tray) ShowWindow() {
 	t.mu.RLock()
 	target := t.targetHwnd
+	iconBytes := t.opts.IconBytes
 	t.mu.RUnlock()
 
 	if target != 0 {
+		if len(iconBytes) > 0 {
+			_ = SetWindowIcon(target, iconBytes)
+		}
 		procShowWindow.Call(target, SW_SHOW)
 		procShowWindow.Call(target, SW_RESTORE)
 		procSetForegroundWindow.Call(target)

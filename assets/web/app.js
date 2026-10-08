@@ -245,8 +245,36 @@ function initEventListeners() {
     }
   });
 
-  // Settings form
-  document.getElementById('settingsForm').addEventListener('submit', saveSettings);
+  // Settings form submit and auto-save
+  const settingsForm = document.getElementById('settingsForm');
+  if (settingsForm) {
+    settingsForm.addEventListener('submit', saveSettings);
+  }
+
+  let autoSaveDebounceTimer = null;
+  const triggerDebouncedAutoSave = () => {
+    clearTimeout(autoSaveDebounceTimer);
+    autoSaveDebounceTimer = setTimeout(() => {
+      persistSettings(false, false);
+    }, 400);
+  };
+  const triggerImmediateAutoSave = () => {
+    clearTimeout(autoSaveDebounceTimer);
+    persistSettings(false, false);
+  };
+
+  document.querySelectorAll('#settingsForm select, #settingsForm input').forEach(el => {
+    el.addEventListener('change', triggerImmediateAutoSave);
+    el.addEventListener('input', triggerDebouncedAutoSave);
+  });
+
+  ['#cleanIPWorkers', '#cleanIPTimeout', '#cleanIPSampleSize', '#cleanIPPort'].forEach(sel => {
+    const el = document.querySelector(sel);
+    if (el) {
+      el.addEventListener('change', triggerImmediateAutoSave);
+      el.addEventListener('input', triggerDebouncedAutoSave);
+    }
+  });
   // Routing form & mode radios
   const routingForm = document.getElementById('routingForm');
   if (routingForm) routingForm.addEventListener('submit', saveRoutingSettings);
@@ -1143,6 +1171,117 @@ async function addSource(e) {
 }
 
 // Settings
+function collectSettingsPayload() {
+  const body = {};
+
+  const concEl = document.getElementById('setConcurrency');
+  if (concEl && concEl.value) body.test_concurrency = parseInt(concEl.value);
+
+  const timeoutEl = document.getElementById('setTimeout');
+  if (timeoutEl && timeoutEl.value) body.test_timeout_sec = parseInt(timeoutEl.value);
+
+  const endpointEl = document.getElementById('setEndpoint');
+  if (endpointEl && endpointEl.value) body.test_endpoint = endpointEl.value.trim();
+
+  const socksEl = document.getElementById('setSocksPort');
+  if (socksEl && socksEl.value) body.socks_port = parseInt(socksEl.value);
+
+  const httpEl = document.getElementById('setHttpPort');
+  if (httpEl && httpEl.value) body.http_port = parseInt(httpEl.value);
+
+  const tunEl = document.getElementById('setTunMode');
+  if (tunEl) body.tun_mode = tunEl.checked;
+
+  const gamingEl = document.getElementById('setGamingMode');
+  if (gamingEl) body.gaming_mode = gamingEl.checked;
+
+  const lanEl = document.getElementById('setShareLAN');
+  if (lanEl) body.share_lan = lanEl.checked;
+
+  const sysProxyEl = document.getElementById('setSystemProxy');
+  if (sysProxyEl) body.system_proxy = sysProxyEl.checked;
+
+  const failoverEl = document.getElementById('setAutoFailover');
+  if (failoverEl) body.auto_failover = failoverEl.checked;
+
+  const autoScanEl = document.getElementById('setAutoScan');
+  if (autoScanEl) body.auto_scan = autoScanEl.checked;
+
+  const autoScanIntervalEl = document.getElementById('setAutoScanInterval');
+  if (autoScanIntervalEl && autoScanIntervalEl.value) body.auto_scan_interval = parseInt(autoScanIntervalEl.value);
+
+  const minTrayEl = document.getElementById('setMinimizeToTray');
+  if (minTrayEl) body.minimize_to_tray = minTrayEl.checked;
+
+  const startWinEl = document.getElementById('setStartWithWindows');
+  if (startWinEl) body.start_with_windows = startWinEl.checked;
+
+  const updateRepoInput = document.getElementById('setUpdateRepo');
+  if (updateRepoInput && updateRepoInput.value.trim()) {
+    body.update_repo = updateRepoInput.value.trim();
+  }
+
+  // Clean IP settings
+  const cleanWorkers = document.getElementById('cleanIPWorkers');
+  if (cleanWorkers && cleanWorkers.value) body.clean_ip_workers = parseInt(cleanWorkers.value);
+
+  const cleanTimeout = document.getElementById('cleanIPTimeout');
+  if (cleanTimeout && cleanTimeout.value) body.clean_ip_timeout = parseInt(cleanTimeout.value);
+
+  const cleanSample = document.getElementById('cleanIPSampleSize');
+  if (cleanSample && cleanSample.value) body.clean_ip_sample_size = parseInt(cleanSample.value);
+
+  const cleanPort = document.getElementById('cleanIPPort');
+  if (cleanPort && cleanPort.value) body.clean_ip_port = parseInt(cleanPort.value);
+
+  return body;
+}
+
+function persistSettingsToStorage(body) {
+  try {
+    if (body.test_concurrency !== undefined) localStorage.setItem('setConcurrency', body.test_concurrency);
+    if (body.test_timeout_sec !== undefined) localStorage.setItem('setTimeout', body.test_timeout_sec);
+    if (body.test_endpoint !== undefined) localStorage.setItem('setEndpoint', body.test_endpoint);
+    if (body.socks_port !== undefined) localStorage.setItem('setSocksPort', body.socks_port);
+    if (body.http_port !== undefined) localStorage.setItem('setHttpPort', body.http_port);
+    if (body.auto_scan !== undefined) localStorage.setItem('setAutoScan', body.auto_scan ? 'true' : 'false');
+    if (body.auto_scan_interval !== undefined) localStorage.setItem('setAutoScanInterval', body.auto_scan_interval);
+    if (body.clean_ip_workers !== undefined) localStorage.setItem('cleanIPWorkers', body.clean_ip_workers);
+    if (body.clean_ip_timeout !== undefined) localStorage.setItem('cleanIPTimeout', body.clean_ip_timeout);
+    if (body.clean_ip_sample_size !== undefined) localStorage.setItem('cleanIPSampleSize', body.clean_ip_sample_size);
+    if (body.clean_ip_port !== undefined) localStorage.setItem('cleanIPPort', body.clean_ip_port);
+  } catch (e) {}
+}
+
+async function persistSettings(closeModalOnDone = false, notify = false) {
+  const body = collectSettingsPayload();
+  persistSettingsToStorage(body);
+
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (notify) {
+      if (res.ok) {
+        showToast('Settings saved successfully.', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast('Failed to save settings: ' + (err.error || res.statusText), 'error');
+      }
+    }
+    if (closeModalOnDone) {
+      closeModal('settingsModal');
+      loadStatus();
+    }
+  } catch (err) {
+    if (notify) {
+      showToast('Failed to save settings: ' + err.message, 'error');
+    }
+  }
+}
+
 async function loadSettings() {
   try {
     const res = await fetch('/api/settings');
@@ -1163,11 +1302,11 @@ async function loadSettings() {
       document.getElementById('setHttpPort').value = s.http_port;
     }
     const setTun = document.getElementById('setTunMode');
-    if (setTun) setTun.checked = !!s.tun_mode;
+    if (setTun && s.tun_mode !== undefined) setTun.checked = !!s.tun_mode;
     const setGaming = document.getElementById('setGamingMode');
-    if (setGaming) setGaming.checked = !!s.gaming_mode;
+    if (setGaming && s.gaming_mode !== undefined) setGaming.checked = !!s.gaming_mode;
     const setLAN = document.getElementById('setShareLAN');
-    if (setLAN) {
+    if (setLAN && s.share_lan !== undefined) {
       setLAN.checked = !!s.share_lan;
       const box = document.getElementById('lanShareInfoBox');
       if (box) {
@@ -1199,6 +1338,35 @@ async function loadSettings() {
     if (updateRepoInput && s.update_repo) {
       updateRepoInput.value = s.update_repo;
     }
+
+    // Clean IP Settings
+    if (document.getElementById('cleanIPWorkers') && s.clean_ip_workers !== undefined) {
+      document.getElementById('cleanIPWorkers').value = s.clean_ip_workers;
+    }
+    if (document.getElementById('cleanIPTimeout') && s.clean_ip_timeout !== undefined) {
+      document.getElementById('cleanIPTimeout').value = s.clean_ip_timeout;
+    }
+    if (document.getElementById('cleanIPSampleSize') && s.clean_ip_sample_size !== undefined) {
+      document.getElementById('cleanIPSampleSize').value = s.clean_ip_sample_size;
+    }
+    if (document.getElementById('cleanIPPort') && s.clean_ip_port !== undefined) {
+      document.getElementById('cleanIPPort').value = s.clean_ip_port;
+    }
+
+    // Cache to localStorage
+    try {
+      if (s.test_concurrency !== undefined) localStorage.setItem('setConcurrency', s.test_concurrency);
+      if (s.test_timeout_sec !== undefined) localStorage.setItem('setTimeout', s.test_timeout_sec);
+      if (s.test_endpoint !== undefined) localStorage.setItem('setEndpoint', s.test_endpoint);
+      if (s.socks_port !== undefined) localStorage.setItem('setSocksPort', s.socks_port);
+      if (s.http_port !== undefined) localStorage.setItem('setHttpPort', s.http_port);
+      if (s.auto_scan !== undefined) localStorage.setItem('setAutoScan', s.auto_scan ? 'true' : 'false');
+      if (s.auto_scan_interval !== undefined) localStorage.setItem('setAutoScanInterval', s.auto_scan_interval);
+      if (s.clean_ip_workers !== undefined) localStorage.setItem('cleanIPWorkers', s.clean_ip_workers);
+      if (s.clean_ip_timeout !== undefined) localStorage.setItem('cleanIPTimeout', s.clean_ip_timeout);
+      if (s.clean_ip_sample_size !== undefined) localStorage.setItem('cleanIPSampleSize', s.clean_ip_sample_size);
+      if (s.clean_ip_port !== undefined) localStorage.setItem('cleanIPPort', s.clean_ip_port);
+    } catch (e) {}
   } catch (err) {
     console.warn('Failed to load settings:', err);
   }
@@ -1226,49 +1394,8 @@ async function fetchLANInfo() {
 }
 
 async function saveSettings(e) {
-  e.preventDefault();
-  const body = {
-    test_concurrency: parseInt(document.getElementById('setConcurrency').value),
-    test_timeout_sec: parseInt(document.getElementById('setTimeout').value),
-    test_endpoint: document.getElementById('setEndpoint').value.trim(),
-    socks_port: parseInt(document.getElementById('setSocksPort').value),
-    http_port: parseInt(document.getElementById('setHttpPort').value),
-    tun_mode: document.getElementById('setTunMode') ? document.getElementById('setTunMode').checked : false,
-    gaming_mode: document.getElementById('setGamingMode') ? document.getElementById('setGamingMode').checked : false,
-    share_lan: document.getElementById('setShareLAN') ? document.getElementById('setShareLAN').checked : false,
-    system_proxy: document.getElementById('setSystemProxy').checked,
-    auto_failover: document.getElementById('setAutoFailover').checked,
-    auto_scan: document.getElementById('setAutoScan').checked,
-    auto_scan_interval: parseInt(document.getElementById('setAutoScanInterval').value),
-    minimize_to_tray: document.getElementById('setMinimizeToTray') ? document.getElementById('setMinimizeToTray').checked : true,
-    start_with_windows: document.getElementById('setStartWithWindows') ? document.getElementById('setStartWithWindows').checked : false,
-  };
-
-  const updateRepoInput = document.getElementById('setUpdateRepo');
-  if (updateRepoInput && updateRepoInput.value.trim()) {
-    body.update_repo = updateRepoInput.value.trim();
-  }
-
-  try {
-    localStorage.setItem('setConcurrency', document.getElementById('setConcurrency').value);
-    localStorage.setItem('setTimeout', document.getElementById('setTimeout').value);
-    localStorage.setItem('setEndpoint', document.getElementById('setEndpoint').value.trim());
-    localStorage.setItem('setAutoScan', document.getElementById('setAutoScan').checked ? 'true' : 'false');
-    localStorage.setItem('setAutoScanInterval', document.getElementById('setAutoScanInterval').value);
-  } catch (e) {}
-
-  try {
-    await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    showToast('Settings saved successfully.', 'success');
-    closeModal('settingsModal');
-    loadStatus();
-  } catch (err) {
-    showToast('Failed to save settings: ' + err.message, 'error');
-  }
+  if (e && e.preventDefault) e.preventDefault();
+  await persistSettings(true, true);
 }
 
 // ==========================================

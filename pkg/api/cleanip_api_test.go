@@ -256,3 +256,146 @@ func TestCleanIP_API_Apply(t *testing.T) {
 		t.Errorf("expected count = 2, got %d", saveAllResp.Count)
 	}
 }
+
+func TestSettings_CleanIPAndPersistence(t *testing.T) {
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// 1. GET /api/settings (default values)
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/settings failed with %d: %s", w.Code, w.Body.String())
+		}
+
+		var set models.Settings
+		if err := json.Unmarshal(w.Body.Bytes(), &set); err != nil {
+			t.Fatalf("failed decoding settings JSON: %v", err)
+		}
+
+		if set.CleanIPWorkers != 100 {
+			t.Errorf("expected default CleanIPWorkers=100, got %d", set.CleanIPWorkers)
+		}
+		if set.CleanIPTimeout != 1500 {
+			t.Errorf("expected default CleanIPTimeout=1500, got %d", set.CleanIPTimeout)
+		}
+		if set.CleanIPSampleSize != 500 {
+			t.Errorf("expected default CleanIPSampleSize=500, got %d", set.CleanIPSampleSize)
+		}
+		if set.CleanIPPort != 443 {
+			t.Errorf("expected default CleanIPPort=443, got %d", set.CleanIPPort)
+		}
+		if set.TestConcurrency != 100 {
+			t.Errorf("expected default TestConcurrency=100, got %d", set.TestConcurrency)
+		}
+		if !set.AutoScan {
+			t.Errorf("expected default AutoScan=true, got false")
+		}
+		if set.AutoScanInterval != 180 {
+			t.Errorf("expected default AutoScanInterval=180, got %d", set.AutoScanInterval)
+		}
+	}
+
+	// 2. POST /api/settings updating clean IP and individual scan settings without socks_port
+	{
+		payload := map[string]any{
+			"clean_ip_workers":     250,
+			"clean_ip_timeout":     2000,
+			"clean_ip_sample_size": 1000,
+			"clean_ip_port":        8443,
+			"auto_scan":            false,
+			"auto_scan_interval":   60,
+			"test_concurrency":     300,
+		}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("POST /api/settings failed with %d: %s", w.Code, w.Body.String())
+		}
+	}
+
+	// 3. GET /api/settings (verify updated settings)
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /api/settings failed with %d: %s", w.Code, w.Body.String())
+		}
+
+		var set models.Settings
+		if err := json.Unmarshal(w.Body.Bytes(), &set); err != nil {
+			t.Fatalf("failed decoding settings JSON: %v", err)
+		}
+
+		if set.CleanIPWorkers != 250 {
+			t.Errorf("expected updated CleanIPWorkers=250, got %d", set.CleanIPWorkers)
+		}
+		if set.CleanIPTimeout != 2000 {
+			t.Errorf("expected updated CleanIPTimeout=2000, got %d", set.CleanIPTimeout)
+		}
+		if set.CleanIPSampleSize != 1000 {
+			t.Errorf("expected updated CleanIPSampleSize=1000, got %d", set.CleanIPSampleSize)
+		}
+		if set.CleanIPPort != 8443 {
+			t.Errorf("expected updated CleanIPPort=8443, got %d", set.CleanIPPort)
+		}
+		if set.TestConcurrency != 300 {
+			t.Errorf("expected updated TestConcurrency=300, got %d", set.TestConcurrency)
+		}
+		if set.AutoScan {
+			t.Errorf("expected updated AutoScan=false, got true")
+		}
+		if set.AutoScanInterval != 60 {
+			t.Errorf("expected updated AutoScanInterval=60, got %d", set.AutoScanInterval)
+		}
+	}
+
+	// 4. POST /api/settings with partial update (only clean_ip_timeout)
+	{
+		payload := map[string]any{
+			"clean_ip_timeout": 3000,
+		}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("POST /api/settings partial failed with %d: %s", w.Code, w.Body.String())
+		}
+	}
+
+	// 5. Verify partial update preserved previous settings
+	{
+		req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		var set models.Settings
+		_ = json.Unmarshal(w.Body.Bytes(), &set)
+
+		if set.CleanIPTimeout != 3000 {
+			t.Errorf("expected CleanIPTimeout=3000, got %d", set.CleanIPTimeout)
+		}
+		if set.CleanIPWorkers != 250 {
+			t.Errorf("expected CleanIPWorkers to remain 250, got %d", set.CleanIPWorkers)
+		}
+		if set.AutoScan {
+			t.Errorf("expected AutoScan to remain false, got true")
+		}
+		if set.TestConcurrency != 300 {
+			t.Errorf("expected TestConcurrency to remain 300, got %d", set.TestConcurrency)
+		}
+	}
+}
+

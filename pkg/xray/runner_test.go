@@ -3,6 +3,7 @@ package xray
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"freenode/pkg/models"
@@ -123,4 +124,94 @@ func TestTunAdapterNameFixed(t *testing.T) {
 		t.Fatalf("expected fixed TUN adapter name ConectiveTUN, got: %s", r.TunAdapterName())
 	}
 }
+
+func TestPsiphonTunConfigValidity(t *testing.T) {
+	r := NewRunner(10808, 10809, "")
+	tunMTU := 1500
+	if r.gamingMode {
+		tunMTU = 1400
+	}
+
+	configMap := v2go.M{
+		"log": v2go.M{
+			"loglevel": "warning",
+		},
+		"dns": v2go.M{
+			"servers": []string{
+				"1.1.1.1",
+				"8.8.8.8",
+			},
+		},
+		"inbounds": []v2go.M{
+			{
+				"tag":      "tun-in",
+				"protocol": "tun",
+				"settings": v2go.M{
+					"name": "ConectiveTUN",
+					"MTU":  tunMTU,
+				},
+				"sniffing": v2go.M{
+					"enabled":      true,
+					"destOverride": []string{"http", "tls", "quic"},
+					"routeOnly":    false,
+				},
+			},
+		},
+		"outbounds": []v2go.M{
+			{
+				"tag":      "proxy",
+				"protocol": "socks",
+				"settings": v2go.M{
+					"servers": []v2go.M{
+						{
+							"address": "127.0.0.1",
+							"port":    r.socksPort,
+						},
+					},
+				},
+			},
+			{
+				"tag":      "direct",
+				"protocol": "freedom",
+			},
+			{
+				"tag":      "block",
+				"protocol": "blackhole",
+			},
+		},
+		"routing": v2go.M{
+			"domainStrategy": "IPIfNonMatch",
+			"rules":          r.buildRoutingRules(),
+		},
+	}
+
+	jsonBytes, err := json.Marshal(configMap)
+	if err != nil {
+		t.Fatalf("marshalling config: %v", err)
+	}
+
+	cfg, err := xserial.LoadJSONConfig(bytes.NewReader(jsonBytes))
+	if err != nil {
+		t.Fatalf("LoadJSONConfig failed for Psiphon TUN bridge config: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil parsed config")
+	}
+}
+
+func TestPsiphonNodeDetection(t *testing.T) {
+	nodes := []*models.Config{
+		{Protocol: "psiphon", Server: "1.2.3.4"},
+		{Protocol: "vless", Identity: "cleanip-123", Server: "1.2.3.4"},
+		{Protocol: "vmess", Source: "Clean IP Fronting", Server: "1.2.3.4"},
+	}
+
+	for _, n := range nodes {
+		isPsiphon := n.Protocol == "psiphon" || strings.HasPrefix(n.Identity, "cleanip-") || n.Source == "Clean IP Fronting"
+		if !isPsiphon {
+			t.Errorf("node %+v should be detected as Psiphon/Clean IP node", n)
+		}
+	}
+}
+
 

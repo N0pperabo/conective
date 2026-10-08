@@ -118,3 +118,57 @@ func TestUpdateRepoMigration(t *testing.T) {
 		t.Errorf("expected custom repo to be preserved, got %s", repoCustom)
 	}
 }
+
+func TestUserSettingsPersistenceAcrossRestarts(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test_user_settings_persist.db")
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+
+	// Initial defaults
+	if c := db.GetSetting("test_concurrency", ""); c != "100" {
+		t.Errorf("expected default test_concurrency 100, got %s", c)
+	}
+
+	// User customizes settings
+	if err := db.SetSetting("test_concurrency", "500"); err != nil {
+		t.Fatalf("SetSetting test_concurrency failed: %v", err)
+	}
+	if err := db.SetSetting("test_timeout_sec", "10"); err != nil {
+		t.Fatalf("SetSetting test_timeout_sec failed: %v", err)
+	}
+	if err := db.SetSetting("auto_scan", "false"); err != nil {
+		t.Fatalf("SetSetting auto_scan failed: %v", err)
+	}
+	if err := db.SetSetting("auto_scan_interval", "60"); err != nil {
+		t.Fatalf("SetSetting auto_scan_interval failed: %v", err)
+	}
+	if err := db.SetSetting("clean_ip_workers", "200"); err != nil {
+		t.Fatalf("SetSetting clean_ip_workers failed: %v", err)
+	}
+
+	// Simulate app restart: Init() is called again
+	if err := db.Init(); err != nil {
+		t.Fatalf("Init() restart failed: %v", err)
+	}
+
+	// Assert custom settings were NOT overwritten
+	if c := db.GetSetting("test_concurrency", ""); c != "500" {
+		t.Errorf("expected test_concurrency to remain 500, got %s", c)
+	}
+	if to := db.GetSetting("test_timeout_sec", ""); to != "10" {
+		t.Errorf("expected test_timeout_sec to remain 10, got %s", to)
+	}
+	if as := db.GetSetting("auto_scan", ""); as != "false" {
+		t.Errorf("expected auto_scan to remain false, got %s", as)
+	}
+	if asi := db.GetSetting("auto_scan_interval", ""); asi != "60" {
+		t.Errorf("expected auto_scan_interval to remain 60, got %s", asi)
+	}
+	if cip := db.GetSetting("clean_ip_workers", ""); cip != "200" {
+		t.Errorf("expected clean_ip_workers to remain 200, got %s", cip)
+	}
+}
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -585,6 +586,23 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		autoFailover := s.db.GetSetting("auto_failover", "true") == "true"
 		maxFailover, _ := strconv.Atoi(s.db.GetSetting("max_failover_tries", "3"))
 
+		cleanIPWorkers, _ := strconv.Atoi(s.db.GetSetting("clean_ip_workers", "100"))
+		if cleanIPWorkers <= 0 {
+			cleanIPWorkers = 100
+		}
+		cleanIPTimeout, _ := strconv.Atoi(s.db.GetSetting("clean_ip_timeout", "1500"))
+		if cleanIPTimeout <= 0 {
+			cleanIPTimeout = 1500
+		}
+		cleanIPSampleSize, _ := strconv.Atoi(s.db.GetSetting("clean_ip_sample_size", "500"))
+		if cleanIPSampleSize <= 0 {
+			cleanIPSampleSize = 500
+		}
+		cleanIPPort, _ := strconv.Atoi(s.db.GetSetting("clean_ip_port", "443"))
+		if cleanIPPort <= 0 {
+			cleanIPPort = 443
+		}
+
 		routingMode := s.db.GetSetting("routing_mode", "blacklist")
 		if routingMode == "bypass_iran" || routingMode == "" {
 			routingMode = "blacklist"
@@ -603,112 +621,179 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		minimizeToTray := s.db.GetSetting("minimize_to_tray", "true") == "true"
 
 		settings := models.Settings{
-			TestConcurrency:  concurrency,
-			TestTimeoutSec:   timeout,
-			TestEndpoint:     endpoint,
-			SocksPort:        socksPort,
-			HTTPPort:         httpPort,
-			SystemProxy:      sysProxy,
-			TunMode:          tunMode,
-			GamingMode:       gamingMode,
-			ShareLAN:         shareLAN,
-			AutoScan:         autoScan,
-			AutoScanInterval: autoScanInterval,
-			AutoFailover:     autoFailover,
-			MaxFailoverTries: maxFailover,
-			StartWithWindows: startWithWindows,
-			MinimizeToTray:   minimizeToTray,
-			RoutingMode:      routingMode,
-			DirectDomains:    directDomains,
-			ProxyDomains:     proxyDomains,
-			DirectApps:       directApps,
-			ProxyApps:        proxyApps,
-			BlockDomains:     blockDomains,
-			UpdateRepo:       updateRepo,
+			TestConcurrency:   concurrency,
+			TestTimeoutSec:    timeout,
+			TestEndpoint:      endpoint,
+			SocksPort:         socksPort,
+			HTTPPort:          httpPort,
+			SystemProxy:       sysProxy,
+			TunMode:           tunMode,
+			GamingMode:        gamingMode,
+			ShareLAN:          shareLAN,
+			AutoScan:          autoScan,
+			AutoScanInterval:  autoScanInterval,
+			AutoFailover:      autoFailover,
+			MaxFailoverTries:  maxFailover,
+			StartWithWindows:  startWithWindows,
+			MinimizeToTray:    minimizeToTray,
+			CleanIPWorkers:    cleanIPWorkers,
+			CleanIPTimeout:    cleanIPTimeout,
+			CleanIPSampleSize: cleanIPSampleSize,
+			CleanIPPort:       cleanIPPort,
+			RoutingMode:       routingMode,
+			DirectDomains:     directDomains,
+			ProxyDomains:      proxyDomains,
+			DirectApps:        directApps,
+			ProxyApps:         proxyApps,
+			BlockDomains:      blockDomains,
+			UpdateRepo:        updateRepo,
 		}
 		writeJSON(w, http.StatusOK, settings)
 		return
 	}
 
 	if r.Method == http.MethodPost {
-		var set models.Settings
-		if err := json.NewDecoder(r.Body).Decode(&set); err != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "failed to read body")
+			return
+		}
+
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &raw); err != nil {
 			writeErr(w, http.StatusBadRequest, "invalid json")
 			return
 		}
 
-		if set.UpdateRepo != "" {
+		var set models.Settings
+		_ = json.Unmarshal(bodyBytes, &set)
+
+		if _, ok := raw["update_repo"]; ok && set.UpdateRepo != "" {
 			_ = s.db.SetSetting("update_repo", set.UpdateRepo)
 		}
 
-		if set.TestConcurrency > 0 {
+		if _, ok := raw["test_concurrency"]; ok && set.TestConcurrency > 0 {
 			_ = s.db.SetSetting("test_concurrency", strconv.Itoa(set.TestConcurrency))
 		}
-		if set.TestTimeoutSec > 0 {
+		if _, ok := raw["test_timeout_sec"]; ok && set.TestTimeoutSec > 0 {
 			_ = s.db.SetSetting("test_timeout_sec", strconv.Itoa(set.TestTimeoutSec))
 		}
-		if set.TestEndpoint != "" {
+		if _, ok := raw["test_endpoint"]; ok && set.TestEndpoint != "" {
 			if strings.Contains(set.TestEndpoint, "gstatic") {
 				set.TestEndpoint = "http://cp.cloudflare.com/generate_204"
 			}
 			_ = s.db.SetSetting("test_endpoint", set.TestEndpoint)
 		}
-		if set.SocksPort > 0 {
+		if _, ok := raw["socks_port"]; ok && set.SocksPort > 0 {
 			_ = s.db.SetSetting("socks_port", strconv.Itoa(set.SocksPort))
 		}
-		if set.HTTPPort > 0 {
+		if _, ok := raw["http_port"]; ok && set.HTTPPort > 0 {
 			_ = s.db.SetSetting("http_port", strconv.Itoa(set.HTTPPort))
 		}
-		if set.TestConcurrency > 0 || set.SocksPort > 0 {
+
+		if _, ok := raw["system_proxy"]; ok {
 			_ = s.db.SetSetting("system_proxy", strconv.FormatBool(set.SystemProxy))
+		}
+		if _, ok := raw["tun_mode"]; ok {
 			_ = s.db.SetSetting("tun_mode", strconv.FormatBool(set.TunMode))
-			_ = s.runner.SetTunMode(set.TunMode)
+			if s.runner != nil {
+				_ = s.runner.SetTunMode(set.TunMode)
+			}
+		}
+		if _, ok := raw["share_lan"]; ok {
 			_ = s.db.SetSetting("share_lan", strconv.FormatBool(set.ShareLAN))
-			s.runner.SetShareLAN(set.ShareLAN)
+			if s.runner != nil {
+				s.runner.SetShareLAN(set.ShareLAN)
+			}
+		}
+		if _, ok := raw["gaming_mode"]; ok {
 			_ = s.db.SetSetting("gaming_mode", strconv.FormatBool(set.GamingMode))
-			s.runner.SetGamingMode(set.GamingMode)
+			if s.runner != nil {
+				s.runner.SetGamingMode(set.GamingMode)
+			}
+		}
+		if _, ok := raw["auto_scan"]; ok {
 			_ = s.db.SetSetting("auto_scan", strconv.FormatBool(set.AutoScan))
-			if set.AutoScanInterval > 0 {
-				_ = s.db.SetSetting("auto_scan_interval", strconv.Itoa(set.AutoScanInterval))
+		}
+		if _, ok := raw["auto_scan_interval"]; ok && set.AutoScanInterval > 0 {
+			_ = s.db.SetSetting("auto_scan_interval", strconv.Itoa(set.AutoScanInterval))
+		}
+		if _, ok1 := raw["auto_scan"]; ok1 || raw["auto_scan_interval"] != nil {
+			if s.scheduler != nil {
+				autoScan := s.db.GetSetting("auto_scan", "true") == "true"
+				interval, _ := strconv.Atoi(s.db.GetSetting("auto_scan_interval", "180"))
+				s.scheduler.ConfigureAutoScan(autoScan, interval)
 			}
+		}
+		if _, ok := raw["auto_failover"]; ok {
 			_ = s.db.SetSetting("auto_failover", strconv.FormatBool(set.AutoFailover))
-			if set.MaxFailoverTries > 0 {
-				_ = s.db.SetSetting("max_failover_tries", strconv.Itoa(set.MaxFailoverTries))
-			}
-			// Apply scheduler changes immediately
-			s.scheduler.ConfigureAutoScan(set.AutoScan, set.AutoScanInterval)
+		}
+		if _, ok := raw["max_failover_tries"]; ok && set.MaxFailoverTries > 0 {
+			_ = s.db.SetSetting("max_failover_tries", strconv.Itoa(set.MaxFailoverTries))
+		}
+
+		// Clean IP settings
+		if _, ok := raw["clean_ip_workers"]; ok && set.CleanIPWorkers > 0 {
+			_ = s.db.SetSetting("clean_ip_workers", strconv.Itoa(set.CleanIPWorkers))
+		}
+		if _, ok := raw["clean_ip_timeout"]; ok && set.CleanIPTimeout > 0 {
+			_ = s.db.SetSetting("clean_ip_timeout", strconv.Itoa(set.CleanIPTimeout))
+		}
+		if _, ok := raw["clean_ip_sample_size"]; ok && set.CleanIPSampleSize > 0 {
+			_ = s.db.SetSetting("clean_ip_sample_size", strconv.Itoa(set.CleanIPSampleSize))
+		}
+		if _, ok := raw["clean_ip_port"]; ok && set.CleanIPPort > 0 {
+			_ = s.db.SetSetting("clean_ip_port", strconv.Itoa(set.CleanIPPort))
 		}
 
 		// Autostart and Minimize-to-tray settings
-		_ = s.db.SetSetting("minimize_to_tray", strconv.FormatBool(set.MinimizeToTray))
-		_ = s.db.SetSetting("start_with_windows", strconv.FormatBool(set.StartWithWindows))
-		if err := autostart.SetEnabled(set.StartWithWindows); err != nil {
-			fmt.Printf("[Warning] Failed to update Windows autostart: %v\n", err)
+		if _, ok := raw["minimize_to_tray"]; ok {
+			_ = s.db.SetSetting("minimize_to_tray", strconv.FormatBool(set.MinimizeToTray))
+		}
+		if _, ok := raw["start_with_windows"]; ok {
+			_ = s.db.SetSetting("start_with_windows", strconv.FormatBool(set.StartWithWindows))
+			if err := autostart.SetEnabled(set.StartWithWindows); err != nil {
+				fmt.Printf("[Warning] Failed to update Windows autostart: %v\n", err)
+			}
 		}
 
 		// Routing & Split Tunneling
 		if set.RoutingMode != "" {
 			_ = s.db.SetSetting("routing_mode", set.RoutingMode)
-			_ = s.db.SetSetting("direct_domains", set.DirectDomains)
-			_ = s.db.SetSetting("proxy_domains", set.ProxyDomains)
-			_ = s.db.SetSetting("direct_apps", set.DirectApps)
-			_ = s.db.SetSetting("proxy_apps", set.ProxyApps)
-			_ = s.db.SetSetting("block_domains", set.BlockDomains)
+			if _, ok := raw["direct_domains"]; ok {
+				_ = s.db.SetSetting("direct_domains", set.DirectDomains)
+			}
+			if _, ok := raw["proxy_domains"]; ok {
+				_ = s.db.SetSetting("proxy_domains", set.ProxyDomains)
+			}
+			if _, ok := raw["direct_apps"]; ok {
+				_ = s.db.SetSetting("direct_apps", set.DirectApps)
+			}
+			if _, ok := raw["proxy_apps"]; ok {
+				_ = s.db.SetSetting("proxy_apps", set.ProxyApps)
+			}
+			if _, ok := raw["block_domains"]; ok {
+				_ = s.db.SetSetting("block_domains", set.BlockDomains)
+			}
 		}
 
 		// If connected, seamlessly reload runner with new routing rules
-		if s.runner.IsRunning() {
-			activeNode := s.runner.GetActiveNode()
-			if activeNode != nil {
-				go func(n *models.Config) {
-					_ = s.runner.Connect(n)
-				}(activeNode)
+		if _, ok := raw["routing_mode"]; ok {
+			if s.runner != nil && s.runner.IsRunning() {
+				activeNode := s.runner.GetActiveNode()
+				if activeNode != nil {
+					go func(n *models.Config) {
+						_ = s.runner.Connect(n)
+					}(activeNode)
+				}
 			}
 		}
 
 		writeJSON(w, http.StatusOK, map[string]string{"message": "settings saved"})
 		return
 	}
+
+	writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (s *Server) handlePingAll(w http.ResponseWriter, r *http.Request) {
@@ -1021,6 +1106,19 @@ func (s *Server) handleCleanIPStart(w http.ResponseWriter, r *http.Request) {
 
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	if req.Workers <= 0 {
+		req.Workers, _ = strconv.Atoi(s.db.GetSetting("clean_ip_workers", "100"))
+	}
+	if req.TimeoutMs <= 0 {
+		req.TimeoutMs, _ = strconv.Atoi(s.db.GetSetting("clean_ip_timeout", "1500"))
+	}
+	if req.SampleSize <= 0 {
+		req.SampleSize, _ = strconv.Atoi(s.db.GetSetting("clean_ip_sample_size", "500"))
+	}
+	if req.Port <= 0 {
+		req.Port, _ = strconv.Atoi(s.db.GetSetting("clean_ip_port", "443"))
 	}
 
 	opts := cleanip.ScanOptions{

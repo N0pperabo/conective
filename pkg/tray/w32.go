@@ -33,6 +33,7 @@ var (
 	procTranslateMessage         = user32.NewProc("TranslateMessage")
 	procDispatchMessageW         = user32.NewProc("DispatchMessageW")
 	procDefWindowProcW           = user32.NewProc("DefWindowProcW")
+	procSendMessageW             = user32.NewProc("SendMessageW")
 	procLoadImageW               = user32.NewProc("LoadImageW")
 	procLoadIconW                = user32.NewProc("LoadIconW")
 	procDestroyIcon              = user32.NewProc("DestroyIcon")
@@ -66,6 +67,9 @@ const (
 	WM_LBUTTONDBLCLK = 0x0203
 	WM_RBUTTONUP     = 0x0205
 	WM_CONTEXTMENU   = 0x007B
+	WM_SETICON       = 0x0080
+	ICON_SMALL       = 0
+	ICON_BIG         = 1
 	WM_USER          = 0x0400
 	WM_APP           = 0x8000
 
@@ -369,3 +373,48 @@ func loadIconFromICOBytes(data []byte, targetWidth, targetHeight int) windows.Ha
 	)
 	return windows.Handle(r)
 }
+
+// SetWindowIcon applies the provided icon bytes as both the small and large window title bar icons.
+func SetWindowIcon(hwnd uintptr, iconBytes []byte) error {
+	if hwnd == 0 || len(iconBytes) == 0 {
+		return nil
+	}
+
+	cxSmall, _, _ := procGetSystemMetrics.Call(SM_CXSMICON)
+	cySmall, _, _ := procGetSystemMetrics.Call(SM_CYSMICON)
+	cxBig, _, _ := procGetSystemMetrics.Call(SM_CXICON)
+	cyBig, _, _ := procGetSystemMetrics.Call(SM_CYICON)
+
+	if cxSmall == 0 {
+		cxSmall = 16
+	}
+	if cySmall == 0 {
+		cySmall = 16
+	}
+	if cxBig == 0 {
+		cxBig = 32
+	}
+	if cyBig == 0 {
+		cyBig = 32
+	}
+
+	hIconSmall := loadIconFromICOBytes(iconBytes, int(cxSmall), int(cySmall))
+	if hIconSmall == 0 {
+		hIconSmall = loadIcon(iconBytes)
+	}
+
+	hIconBig := loadIconFromICOBytes(iconBytes, int(cxBig), int(cyBig))
+	if hIconBig == 0 {
+		hIconBig = loadIcon(iconBytes)
+	}
+
+	if hIconSmall != 0 {
+		procSendMessageW.Call(hwnd, 0x0080 /* WM_SETICON */, 0 /* ICON_SMALL */, uintptr(hIconSmall))
+	}
+	if hIconBig != 0 {
+		procSendMessageW.Call(hwnd, 0x0080 /* WM_SETICON */, 1 /* ICON_BIG */, uintptr(hIconBig))
+	}
+
+	return nil
+}
+

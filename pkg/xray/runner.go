@@ -171,9 +171,15 @@ func (r *Runner) GetStatus() models.ConnectionStatus {
 func (r *Runner) Connect(node *models.Config) error {
 	if node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting" {
 		r.mu.Lock()
+		if r.db != nil {
+			r.gamingMode = r.db.GetSetting("gaming_mode", "false") == "true"
+		}
+		gamingMode := r.gamingMode
+
 		if r.instance != nil {
 			if r.tunMode {
 				_ = r.tunMgr.TeardownAdapter()
+				_ = tun.ResetOrRemoveAdapter(r.currentTunAdapter)
 			}
 			_ = r.instance.Close()
 			r.instance = nil
@@ -205,12 +211,123 @@ func (r *Runner) Connect(node *models.Config) error {
 		tunEnabled := r.tunMode
 		r.mu.Unlock()
 
+		if tunEnabled {
+			if !tun.IsAdmin() {
+				return fmt.Errorf("TUN Mode requires Administrator privileges. Please run FreeNode as Administrator.")
+			}
+			_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
+		}
+
 		if err := r.psiphonRunner.Start(node.Server, r.socksPort, r.httpPort); err != nil {
 			return fmt.Errorf("starting psiphon tunnel: %w", err)
 		}
 
 		if tunEnabled {
-			log.Printf("[Runner] Psiphon CDN fronting active on ports %d/%d (system-wide routing handled via proxy)", r.socksPort, r.httpPort)
+			tunMTU := 1500
+			if gamingMode {
+				tunMTU = 1400
+			}
+
+			directOutbound := v2go.M{
+				"tag":      "direct",
+				"protocol": "freedom",
+			}
+			physIface := r.tunMgr.PhysicalInterface()
+			if physIface == "" {
+				_, physIface, _ = tun.FindPhysicalGatewayAndInterface()
+			}
+			if physIface != "" {
+				directOutbound["streamSettings"] = v2go.M{"sockopt": v2go.M{"interface": physIface}}
+			}
+
+			configMap := v2go.M{
+				"log": v2go.M{
+					"loglevel": "warning",
+				},
+				"dns": v2go.M{
+					"servers": []string{
+						"1.1.1.1",
+						"8.8.8.8",
+					},
+				},
+				"inbounds": []v2go.M{
+					{
+						"tag":      "tun-in",
+						"protocol": "tun",
+						"settings": v2go.M{
+							"name": "ConectiveTUN",
+							"MTU":  tunMTU,
+						},
+						"sniffing": v2go.M{
+							"enabled":      true,
+							"destOverride": []string{"http", "tls", "quic"},
+							"routeOnly":    false,
+						},
+					},
+				},
+				"outbounds": []v2go.M{
+					{
+						"tag":      "proxy",
+						"protocol": "socks",
+						"settings": v2go.M{
+							"servers": []v2go.M{
+								{
+									"address": "127.0.0.1",
+									"port":    r.socksPort,
+								},
+							},
+						},
+					},
+					directOutbound,
+					{
+						"tag":      "block",
+						"protocol": "blackhole",
+					},
+				},
+				"routing": v2go.M{
+					"domainStrategy": "IPIfNonMatch",
+					"rules":          r.buildRoutingRules(),
+				},
+			}
+
+			jsonBytes, err := json.Marshal(configMap)
+			if err != nil {
+				_ = r.psiphonRunner.Stop()
+				return fmt.Errorf("marshalling psiphon tun config: %w", err)
+			}
+
+			cfg, err := xserial.LoadJSONConfig(bytes.NewReader(jsonBytes))
+			if err != nil {
+				_ = r.psiphonRunner.Stop()
+				return fmt.Errorf("loading psiphon tun config: %w", err)
+			}
+
+			instance, err := xcore.New(cfg)
+			if err != nil {
+				_ = r.psiphonRunner.Stop()
+				_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
+				return fmt.Errorf("creating psiphon tun instance: %w", err)
+			}
+
+			if err := instance.Start(); err != nil {
+				_ = instance.Close()
+				_ = r.psiphonRunner.Stop()
+				_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
+				return fmt.Errorf("starting psiphon tun instance: %w", err)
+			}
+
+			if err := r.tunMgr.SetupAdapter("ConectiveTUN", node.Server); err != nil {
+				_ = instance.Close()
+				_ = r.psiphonRunner.Stop()
+				_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
+				return fmt.Errorf("setting up psiphon tun routes: %w", err)
+			}
+
+			r.mu.Lock()
+			r.instance = instance
+			r.currentTunAdapter = "ConectiveTUN"
+			r.mu.Unlock()
+			log.Printf("[Runner] Psiphon TUN mode activated on adapter ConectiveTUN via SOCKS %d", r.socksPort)
 		}
 
 		r.mu.Lock()
@@ -567,18 +684,11 @@ func (r *Runner) Disconnect() (err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.tunMode {
-		_ = r.tunMgr.TeardownAdapter()
-	}
-
-	if r.psiphonRunner != nil && r.psiphonRunner.IsRunning() {
-		_ = r.psiphonRunner.Stop()
-		r.activeNode = nil
-		r.lastLatency = 0
-		r.exitIP = ""
-	}
-
 	if r.instance != nil {
+		if r.tunMode || r.currentTunAdapter != "" {
+			_ = r.tunMgr.TeardownAdapter()
+		}
+
 		inst := r.instance
 		r.instance = nil
 		r.activeNode = nil
@@ -594,13 +704,22 @@ func (r *Runner) Disconnect() (err error) {
 			err = inst.Close()
 		}()
 
-		if r.tunMode {
+		if r.tunMode || r.currentTunAdapter != "" {
 			// Clean up the disconnected Wintun device so Windows doesn't retain a phantom device node
 			_ = tun.ResetOrRemoveAdapter(r.currentTunAdapter)
 		}
-		return err
+	} else if r.tunMode {
+		_ = r.tunMgr.TeardownAdapter()
 	}
-	return nil
+
+	if r.psiphonRunner != nil && r.psiphonRunner.IsRunning() {
+		_ = r.psiphonRunner.Stop()
+		r.activeNode = nil
+		r.lastLatency = 0
+		r.exitIP = ""
+	}
+
+	return err
 }
 
 // Stop terminates active client instances and reclaims OS memory

@@ -142,6 +142,11 @@ type Settings struct {
 	StartWithWindows  bool   `json:"start_with_windows"`
 	MinimizeToTray    bool   `json:"minimize_to_tray"`
 
+	CleanIPWorkers    int    `json:"clean_ip_workers"`     // default: 100
+	CleanIPTimeout    int    `json:"clean_ip_timeout"`     // ms, default: 1500
+	CleanIPSampleSize int    `json:"clean_ip_sample_size"` // default: 500
+	CleanIPPort       int    `json:"clean_ip_port"`        // default: 443
+
 	// Routing & Split Tunneling Settings
 	RoutingMode   string `json:"routing_mode"`   // "bypass_iran" (default), "global", "proxy_apps_only", "custom"
 	DirectDomains string `json:"direct_domains"` // Domains to bypass proxy (e.g. .ir, banking)

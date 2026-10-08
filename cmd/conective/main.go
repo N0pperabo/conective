@@ -282,6 +282,9 @@ func main() {
 			if appTray != nil {
 				appTray.ShowWindow()
 			}
+			if w != nil {
+				_ = tray.SetWindowIcon(uintptr(w.Window()), assets.AppIcon)
+			}
 		},
 		OnDisconnect: func() {
 			if runner.IsRunning() {
@@ -340,6 +343,7 @@ func main() {
 
 			// Attach window to system tray for minimize-to-tray handling on close
 			hwnd := uintptr(w.Window())
+			_ = tray.SetWindowIcon(hwnd, assets.AppIcon)
 			appTray.AttachWindow(hwnd, func() bool {
 				return db.GetSetting("minimize_to_tray", "true") == "true"
 			})

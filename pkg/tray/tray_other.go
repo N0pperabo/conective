@@ -39,3 +39,9 @@ func (t *Tray) ShowWindow() {}
 func (t *Tray) HideWindow() {}
 
 func (t *Tray) ExitApp() {}
+
+// SetWindowIcon is a stub implementation for non-Windows platforms.
+func SetWindowIcon(hwnd uintptr, iconBytes []byte) error {
+	return nil
+}
+

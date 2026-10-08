@@ -183,17 +183,16 @@ func (d *DB) migrate() error {
 	_, _ = d.db.Exec("CREATE INDEX IF NOT EXISTS idx_configs_trust ON configs(trust_score)")
 	_, _ = d.db.Exec("CREATE INDEX IF NOT EXISTS idx_configs_favorite ON configs(is_favorite)")
 	_, _ = d.db.Exec("UPDATE settings SET value = 'http://cp.cloudflare.com/generate_204' WHERE key = 'test_endpoint' AND value LIKE '%gstatic%'")
-	_, _ = d.db.Exec("UPDATE settings SET value = '100' WHERE key = 'test_concurrency'")
-	_, _ = d.db.Exec("UPDATE settings SET value = '5' WHERE key = 'test_timeout_sec'")
-	_, _ = d.db.Exec("UPDATE settings SET value = 'true' WHERE key = 'auto_scan'")
-	_, _ = d.db.Exec("UPDATE settings SET value = '180' WHERE key = 'auto_scan_interval'")
-
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('test_concurrency', '100')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('test_timeout_sec', '5')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_scan', 'true')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_scan_interval', '180')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('test_endpoint', 'http://cp.cloudflare.com/generate_204')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_failover', 'true')")
+	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('clean_ip_workers', '100')")
+	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('clean_ip_timeout', '1500')")
+	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('clean_ip_sample_size', '500')")
+	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('clean_ip_port', '443')")
 
 	// Seed default routing settings
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('routing_mode', 'blacklist')")
