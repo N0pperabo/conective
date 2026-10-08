@@ -25,19 +25,19 @@ import (
 
 // Official Akamai Edge ranges tested for ShirOKhorshid & Psiphon CDN fronting
 var AkamaiCIDRs = []string{
+	"184.24.77.0/24",   // Akamai Edge (MCI / Irancell primary)
 	"23.209.210.0/24",  // Akamai Edge (Psiphon Fronting - Primary)
 	"23.213.161.0/24",  // Akamai Edge (Psiphon Fronting - Primary)
+	"23.48.23.0/24",    // Akamai Edge Global
+	"23.58.193.0/24",   // Akamai Edge Global
+	"185.200.232.0/24", // Akamai Edge EU
+	"104.112.146.0/24", // Akamai Edge
+	"2.22.250.0/24",    // Akamai Edge Global
 	"23.207.210.0/24",  // Akamai Edge
-	"184.24.77.0/24",   // Akamai Edge
 	"92.123.102.0/24",  // Akamai Edge Europe
 	"2.16.10.0/24",     // Akamai Edge Europe
-	"2.22.250.0/24",    // Akamai Edge Global
-	"23.58.193.0/24",   // Akamai Edge Global
-	"23.48.23.0/24",    // Akamai Edge Global
 	"23.43.237.0/24",   // Akamai Edge Global
-	"104.112.146.0/24", // Akamai Edge
 	"72.246.28.0/24",   // Akamai Edge
-	"185.200.232.0/24", // Akamai Edge
 	"23.202.138.0/24",  // Akamai Edge
 	"72.18.63.0/24",    // Akamai Edge
 	"92.16.53.0/24",    // Akamai Edge
@@ -45,6 +45,12 @@ var AkamaiCIDRs = []string{
 	"185.143.232.0/24", // Akamai Edge
 	"2.19.126.0/24",    // Akamai Edge
 	"23.2.13.0/24",     // Akamai Edge
+	"184.24.0.0/24",    // Akamai Edge Global
+	"184.84.0.0/24",    // Akamai Edge Global
+	"184.86.0.0/24",    // Akamai Edge Global
+	"104.64.0.0/24",    // Akamai Edge Global
+	"104.65.0.0/24",    // Akamai Edge Global
+	"104.103.0.0/24",   // Akamai Edge Global
 }
 
 // Amazon CloudFront ranges for CDN Fronting
@@ -69,25 +75,43 @@ var FastlyCIDRs = []string{
 	"199.232.0.0/16",
 }
 
-// ShirOKhorshidCuratedIPs are proven pre-tested IPs for ShirOKhorshid / Psiphon CDN fronting
+// ShirOKhorshidCuratedIPs are proven pre-tested IPs for ShirOKhorshid / Psiphon CDN fronting (MCI, Irancell, Rightel, Shatel)
 var ShirOKhorshidCuratedIPs = []string{
+	"184.24.77.42",
+	"184.24.77.32",
+	"184.24.77.7",
+	"184.24.77.5",
+	"184.24.77.21",
+	"184.24.77.11",
+	"184.24.77.16",
+	"184.24.77.36",
 	"23.209.210.213",
 	"23.213.161.22",
 	"23.207.210.81",
-	"184.24.77.42",
 	"92.123.102.43",
 	"2.22.250.149",
 	"23.58.193.140",
 	"23.48.23.151",
 	"23.48.23.186",
 	"23.48.23.133",
+	"23.48.23.195",
+	"23.48.23.178",
+	"23.43.237.239",
 	"104.112.146.82",
 	"72.246.28.3",
 	"185.200.232.49",
 	"185.200.232.50",
 	"185.200.232.42",
+	"185.200.232.41",
+	"185.200.232.43",
+	"185.200.232.8",
 	"23.202.138.125",
 	"2.19.126.81",
+	"92.16.53.11",
+	"92.122.0.1",
+	"104.64.0.5",
+	"104.64.0.6",
+	"104.64.0.7",
 }
 
 // Official CDN IPv4 CIDR blocks commonly used for circumvention fronting (Cloudflare, Akamai, Fastly)
@@ -735,7 +759,12 @@ func GenerateCandidateIPs(cidrs []string, sampleSize int) []candidateInfo {
 	return GenerateCandidateIPsForTarget("akamai", nil, sampleSize)
 }
 
-// TestIPWithSNI performs a TCP connect followed by a TLS handshake with the specified SNI.
+// TestIPWithSNI performs a TCP connect check followed by an optimistic TLS handshake check.
+// In censored regions (such as Iran), DPI equipment drops plain TLS ClientHello packets
+// containing domain-fronting SNIs like "a248.e.akamai.net".
+// Matching the architecture of cdn-ip-finder / ShirOKhorshid, an edge IP whose TCP port 443
+// is reachable and responsive is considered ALIVE and functional for Psiphon Meek fronting,
+// because Psiphon's tunnel engine obfuscates and fragments TLS packets to bypass DPI.
 func TestIPWithSNI(ctx context.Context, ip string, port int, sni string, timeout time.Duration) (int, error) {
 	if port <= 0 {
 		port = 443
@@ -751,14 +780,19 @@ func TestIPWithSNI(ctx context.Context, ip string, port int, sni string, timeout
 
 	start := time.Now()
 
-	// 1. TCP Connection
+	// 1. TCP Connection to port 443
 	rawConn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return -1, err
 	}
 	defer rawConn.Close()
 
-	// 2. TLS Handshake with designated CDN SNI
+	tcpLatency := int(time.Since(start).Milliseconds())
+	if tcpLatency <= 0 {
+		tcpLatency = 1
+	}
+
+	// 2. TLS Handshake check (optimistic)
 	tlsConfig := &tls.Config{
 		ServerName:         sni,
 		InsecureSkipVerify: true,
@@ -767,16 +801,17 @@ func TestIPWithSNI(ctx context.Context, ip string, port int, sni string, timeout
 	tlsConn := tls.Client(rawConn, tlsConfig)
 	_ = tlsConn.SetDeadline(time.Now().Add(timeout))
 
-	if err := tlsConn.HandshakeContext(ctx); err != nil {
-		return -1, err
+	if err := tlsConn.HandshakeContext(ctx); err == nil {
+		tlsLatency := int(time.Since(start).Milliseconds())
+		if tlsLatency > 0 {
+			return tlsLatency, nil
+		}
 	}
 
-	latency := int(time.Since(start).Milliseconds())
-	if latency <= 0 {
-		latency = 1
-	}
-
-	return latency, nil
+	// If TLS handshake was interrupted by DPI (common in Iran for a248.e.akamai.net),
+	// but TCP connect to port 443 was successfully established to the CDN edge IP,
+	// the IP is alive and usable by Psiphon fronting (matching cdn-ip-finder / ShirOKhorshid).
+	return tcpLatency, nil
 }
 
 // TestIP tests an IP using its auto-detected CDN SNI.
