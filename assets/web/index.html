@@ -38,6 +38,9 @@
         <button id="btnCleanIP" class="btn btn-secondary" title="Cloudflare Clean IP & CDN Fronting Scanner">
           CDN Clean IP
         </button>
+        <button id="btnLogs" class="btn btn-secondary" title="View live system and circumvention engine logs">
+          Logs
+        </button>
         <button id="btnSettings" class="btn btn-secondary">
           Settings
         </button>
@@ -947,6 +950,46 @@
         <div style="display: flex; gap: 8px;">
           <button type="button" class="btn btn-primary btn-sm" data-close="appPickerModal">Done / Apply</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: System & Engine Logs -->
+  <div id="logsModal" class="modal">
+    <div class="modal-dialog modal-lg modal-terminal">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2>System & Engine Logs</h2>
+          <span id="logStreamBadge" class="badge badge-success">Live</span>
+        </div>
+        <div class="terminal-header-controls">
+          <select id="logSourceFilter" class="form-select form-select-sm">
+            <option value="all">All Sources</option>
+            <option value="psiphon">Psiphon / Aether</option>
+            <option value="xray">Xray</option>
+            <option value="tun">TUN Network</option>
+            <option value="system">System</option>
+            <option value="api">API</option>
+          </select>
+          <input type="text" id="logSearchInput" class="form-input form-input-sm" placeholder="Search logs...">
+          <label class="terminal-checkbox-label">
+            <input type="checkbox" id="chkLogAutoScroll" checked> Auto-scroll
+          </label>
+          <button id="btnLogsCopy" class="btn btn-sm btn-secondary" title="Copy logs to clipboard">Copy</button>
+          <button id="btnLogsClear" class="btn btn-sm btn-secondary" title="Clear console">Clear</button>
+          <button class="modal-close" data-close="logsModal">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body terminal-body">
+        <div id="logConsole" class="terminal-console">
+          <!-- Real-time log entries render here -->
+        </div>
+      </div>
+      <div class="modal-footer terminal-footer">
+        <div class="terminal-stats">
+          Total: <span id="logTotalCount">0</span> lines | Showing: <span id="logVisibleCount">0</span>
+        </div>
+        <button class="btn btn-secondary modal-close" data-close="logsModal">Close</button>
       </div>
     </div>
   </div>

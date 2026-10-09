@@ -18,6 +18,7 @@ import (
 	"freenode/pkg/database"
 	"freenode/pkg/gaming"
 	"freenode/pkg/lan"
+	"freenode/pkg/logger"
 	"freenode/pkg/models"
 	"freenode/pkg/procutil"
 	"freenode/pkg/proxy"
@@ -48,6 +49,8 @@ func NewServer(
 	proxyMgr *proxy.Manager,
 	sched *scheduler.Controller,
 ) *Server {
+	logger.InitStdLogCapture()
+
 	cleanMgr := cleanip.NewManager()
 	if engine != nil && engine.Geo() != nil {
 		cleanMgr.SetGeoResolver(engine.Geo())
@@ -120,6 +123,11 @@ func (s *Server) registerRoutes() {
 
 	// Server-Sent Events (SSE) for Real-Time UI updates
 	s.mux.HandleFunc("/api/events", s.handleEventsSSE)
+
+	// Live Log Streaming & Hub
+	s.mux.HandleFunc("/api/logs/stream", s.handleLogsStream)
+	s.mux.HandleFunc("/api/logs", s.handleLogs)
+	s.mux.HandleFunc("/api/logs/clear", s.handleLogsClear)
 
 	// Graceful App Termination & Updates
 	s.mux.HandleFunc("/api/system/exit", s.handleSystemExit)
@@ -420,21 +428,28 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
+		logger.Warn("api", "Connect requested with invalid ID: %s", idStr)
 		writeErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 
+	logger.Info("api", "Connect requested for node ID %d", id)
+
 	node, err := s.db.GetConfigByID(id)
 	if err != nil {
+		logger.Error("api", "Connect failed: node ID %d not found", id)
 		writeErr(w, http.StatusNotFound, "node not found")
 		return
 	}
 
 	// Connect internal Xray
 	if err := s.runner.Connect(node); err != nil {
+		logger.Error("api", "Connect failed for node ID %d ('%s'): %v", id, node.Name, err)
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("Failed to connect: %v", err))
 		return
 	}
+
+	logger.Info("api", "Successfully connected to node '%s' (ID %d)", node.Name, id)
 
 	// Enable Windows system proxy if enabled in settings or for Psiphon / CDN IP nodes
 	sysProxyEnabled := s.db.GetSetting("system_proxy", "true") == "true" || node.Protocol == "psiphon" || node.IsCDNIP()
@@ -449,6 +464,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+	logger.Info("api", "Disconnect requested")
 	defer func() {
 		if rec := recover(); rec != nil {
 			log.Printf("[Server] Panic during handleDisconnect: %v", rec)
@@ -466,6 +482,8 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 	if s.proxyMgr != nil {
 		_ = s.proxyMgr.Disable()
 	}
+
+	logger.Info("api", "Disconnected successfully")
 
 	if s.runner != nil {
 		writeJSON(w, http.StatusOK, s.runner.GetStatus())
@@ -1053,6 +1071,57 @@ func (s *Server) handleEventsSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func (s *Server) handleLogsStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// First, send all existing backlog from logger.GetHistory()
+	history := logger.GetHistory()
+	for _, entry := range history {
+		data, err := json.Marshal(entry)
+		if err == nil {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		}
+	}
+	flusher.Flush()
+
+	// Then loop on ch := logger.Subscribe() and stream events. Flush after every event.
+	ch, unsubscribe := logger.Subscribe()
+	defer unsubscribe()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case entry, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(entry)
+			if err == nil {
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
+		}
+	}
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, logger.GetHistory())
+}
+
+func (s *Server) handleLogsClear(w http.ResponseWriter, r *http.Request) {
+	logger.Clear()
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 func (s *Server) handleSystemExit(w http.ResponseWriter, r *http.Request) {

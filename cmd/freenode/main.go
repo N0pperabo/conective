@@ -25,6 +25,7 @@ import (
 	"freenode/pkg/cleanip"
 	"freenode/pkg/database"
 	"freenode/pkg/geoip"
+	"freenode/pkg/logger"
 	"freenode/pkg/proxy"
 	"freenode/pkg/scheduler"
 	"freenode/pkg/tray"
@@ -40,6 +41,8 @@ var (
 )
 
 func main() {
+	logger.InitStdLogCapture()
+
 	// Configure Go runtime memory management for ultra-low RAM footprint
 	debug.SetGCPercent(50)                  // Reclaim heap aggressively (default is 100)
 	debug.SetMemoryLimit(256 * 1024 * 1024) // 256MB soft ceiling
@@ -98,7 +101,7 @@ func main() {
 	logFile, err := os.OpenFile(filepath.Join(dataDir, "conective.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err == nil {
 		defer logFile.Close()
-		log.SetOutput(io.MultiWriter(os.Stdout, logFile))
+		log.SetOutput(io.MultiWriter(os.Stdout, logFile, logger.Writer("system", "info")))
 	}
 
 	log.Printf("========================================")

@@ -25,6 +25,7 @@ const btnRouting = document.getElementById('btnRouting');
 const btnPingAll = document.getElementById('btnPingAll');
 const btnSub = document.getElementById('btnSub');
 const btnHistory = document.getElementById('btnHistory');
+const btnLogs = document.getElementById('btnLogs');
 const btnClearNodes = document.getElementById('btnClearNodes');
 const tabFavorites = document.getElementById('tabFavorites');
 let isScanningOrPinging = false;
@@ -40,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadNodes();
   loadSources();
   initEventStream();
+  initLogsViewer();
 
   // Poll status periodically as backup
   setInterval(loadStatus, 4000);
@@ -224,6 +226,7 @@ function initEventListeners() {
   btnHistory.addEventListener('click', () => openModal('historyModal', loadHistory));
   const btnCleanIP = document.getElementById('btnCleanIP');
   if (btnCleanIP) btnCleanIP.addEventListener('click', () => openModal('cleanIPModal', loadCleanIPStatus));
+  if (btnLogs) btnLogs.addEventListener('click', () => openModal('logsModal'));
   const btnStartCleanIP = document.getElementById('btnStartCleanIP');
   if (btnStartCleanIP) btnStartCleanIP.addEventListener('click', startCleanIPScan);
   const btnCancelCleanIP = document.getElementById('btnCancelCleanIP');
@@ -1739,7 +1742,11 @@ async function clearHistory() {
 
 // Modals Helper
 function openModal(id, onOpen) {
-  document.getElementById(id).classList.add('open');
+  const modalEl = document.getElementById(id);
+  if (modalEl) modalEl.classList.add('open');
+  if (id === 'logsModal' && typeof checkLogAutoScroll === 'function') {
+    setTimeout(checkLogAutoScroll, 50);
+  }
   if (onOpen) onOpen();
 }
 
@@ -2477,6 +2484,424 @@ function toggleAppInTextarea(textareaId, exeName, typeName) {
     return true;
   }
 }
+
+// ==========================================
+// Live System & Engine Logs Viewer
+// ==========================================
+
+let allLogs = [];
+let filteredLogs = [];
+const MAX_LOG_ENTRIES = 2000;
+let logIdSeq = 0;
+let logEventSource = null;
+let logReconnectTimeout = null;
+
+function initLogsViewer() {
+  const btnLogsEl = document.getElementById('btnLogs');
+  if (btnLogsEl) {
+    btnLogsEl.addEventListener('click', () => openModal('logsModal'));
+  }
+
+  const logSourceFilter = document.getElementById('logSourceFilter');
+  if (logSourceFilter) {
+    logSourceFilter.addEventListener('change', filterAndRenderLogs);
+  }
+
+  const logSearchInput = document.getElementById('logSearchInput');
+  if (logSearchInput) {
+    logSearchInput.addEventListener('input', filterAndRenderLogs);
+  }
+
+  const chkLogAutoScroll = document.getElementById('chkLogAutoScroll');
+  if (chkLogAutoScroll) {
+    chkLogAutoScroll.addEventListener('change', () => {
+      if (chkLogAutoScroll.checked) {
+        checkLogAutoScroll();
+      }
+    });
+  }
+
+  const btnLogsCopy = document.getElementById('btnLogsCopy');
+  if (btnLogsCopy) {
+    btnLogsCopy.addEventListener('click', copyLogsToClipboard);
+  }
+
+  const btnLogsClear = document.getElementById('btnLogsClear');
+  if (btnLogsClear) {
+    btnLogsClear.addEventListener('click', clearLogs);
+  }
+
+  // Initial empty state in console
+  const consoleEl = document.getElementById('logConsole');
+  if (consoleEl && !consoleEl.hasChildNodes()) {
+    consoleEl.innerHTML = '<div class="terminal-empty">Waiting for engine logs...</div>';
+  }
+
+  // Start real-time SSE stream
+  initLogStream();
+}
+
+function initLogStream() {
+  if (logReconnectTimeout) {
+    clearTimeout(logReconnectTimeout);
+    logReconnectTimeout = null;
+  }
+  if (logEventSource) {
+    try { logEventSource.close(); } catch (e) {}
+    logEventSource = null;
+  }
+
+  const badge = document.getElementById('logStreamBadge');
+
+  try {
+    logEventSource = new EventSource('/api/logs/stream');
+
+    logEventSource.onopen = () => {
+      if (badge) {
+        badge.textContent = 'Live';
+        badge.className = 'badge badge-success';
+      }
+    };
+
+    const handleLogPayload = (event) => {
+      if (!event || !event.data) return;
+      try {
+        const parsed = JSON.parse(event.data);
+        handleIncomingLogs(parsed);
+      } catch (e) {
+        // Raw text line fallback
+        handleIncomingLogs({
+          timestamp: new Date().toISOString(),
+          source: 'system',
+          level: 'info',
+          message: event.data
+        });
+      }
+    };
+
+    logEventSource.onmessage = handleLogPayload;
+    logEventSource.addEventListener('log', handleLogPayload);
+
+    logEventSource.onerror = () => {
+      if (badge) {
+        badge.textContent = 'Reconnecting...';
+        badge.className = 'badge badge-warning';
+      }
+      if (logEventSource && logEventSource.readyState === EventSource.CLOSED) {
+        if (!logReconnectTimeout) {
+          logReconnectTimeout = setTimeout(() => {
+            logReconnectTimeout = null;
+            initLogStream();
+          }, 3500);
+        }
+      }
+    };
+  } catch (err) {
+    if (badge) {
+      badge.textContent = 'Reconnecting...';
+      badge.className = 'badge badge-warning';
+    }
+    if (!logReconnectTimeout) {
+      logReconnectTimeout = setTimeout(() => {
+        logReconnectTimeout = null;
+        initLogStream();
+      }, 3500);
+    }
+  }
+}
+
+function normalizeLogEntry(item) {
+  if (!item) return null;
+  if (typeof item === 'string') {
+    return {
+      id: 'log_' + (++logIdSeq) + '_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      source: 'system',
+      level: 'info',
+      message: item
+    };
+  }
+
+  const ts = item.timestamp || item.time || item.created_at || new Date().toISOString();
+  const src = (item.source || item.src || item.engine || 'system').toLowerCase();
+  let lvl = (item.level || item.lvl || item.severity || 'info').toLowerCase();
+  if (lvl === 'warning') lvl = 'warn';
+  let msg = item.message !== undefined ? item.message : (item.msg !== undefined ? item.msg : JSON.stringify(item));
+  if (typeof msg !== 'string') msg = String(msg);
+
+  return {
+    id: item.id || ('log_' + (++logIdSeq) + '_' + Date.now()),
+    timestamp: ts,
+    source: src,
+    level: lvl,
+    message: msg
+  };
+}
+
+function handleIncomingLogs(data) {
+  if (!data) return;
+
+  const rawList = Array.isArray(data) ? data : [data];
+  if (rawList.length === 0) return;
+
+  const validEntries = [];
+  for (const raw of rawList) {
+    const entry = normalizeLogEntry(raw);
+    if (entry) {
+      validEntries.push(entry);
+    }
+  }
+
+  if (validEntries.length === 0) return;
+
+  allLogs.push(...validEntries);
+  if (allLogs.length > MAX_LOG_ENTRIES) {
+    allLogs = allLogs.slice(allLogs.length - MAX_LOG_ENTRIES);
+  }
+
+  if (validEntries.length > 3) {
+    // Large batch (e.g. initial connection dump): full re-filter and render
+    filterAndRenderLogs();
+  } else {
+    // Real-time incremental additions
+    let addedToDOM = false;
+    for (const entry of validEntries) {
+      if (matchesLogFilter(entry)) {
+        filteredLogs.push(entry);
+        appendLogToDOM(entry);
+        addedToDOM = true;
+      }
+    }
+    if (filteredLogs.length > MAX_LOG_ENTRIES) {
+      filteredLogs = filteredLogs.slice(filteredLogs.length - MAX_LOG_ENTRIES);
+    }
+    updateLogCounts();
+    if (addedToDOM) {
+      checkLogAutoScroll();
+    }
+  }
+}
+
+function matchesLogFilter(log) {
+  const filterSelect = document.getElementById('logSourceFilter');
+  const searchInput = document.getElementById('logSearchInput');
+
+  const selectedSource = filterSelect ? filterSelect.value.toLowerCase() : 'all';
+  const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+  if (selectedSource !== 'all') {
+    const s = (log.source || '').toLowerCase();
+    if (selectedSource === 'psiphon') {
+      if (s !== 'psiphon' && s !== 'aether') return false;
+    } else if (s !== selectedSource) {
+      return false;
+    }
+  }
+
+  if (searchTerm) {
+    const msg = (log.message || '').toLowerCase();
+    const src = (log.source || '').toLowerCase();
+    const lvl = (log.level || '').toLowerCase();
+    if (!msg.includes(searchTerm) && !src.includes(searchTerm) && !lvl.includes(searchTerm)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function filterAndRenderLogs() {
+  const consoleEl = document.getElementById('logConsole');
+  if (!consoleEl) return;
+
+  filteredLogs = allLogs.filter(matchesLogFilter);
+
+  consoleEl.innerHTML = '';
+  if (filteredLogs.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'terminal-empty';
+    empty.textContent = allLogs.length === 0 ? 'Waiting for engine logs...' : 'No logs match current filter.';
+    consoleEl.appendChild(empty);
+  } else {
+    const frag = document.createDocumentFragment();
+    for (const entry of filteredLogs) {
+      frag.appendChild(createLogLineElement(entry));
+    }
+    consoleEl.appendChild(frag);
+  }
+
+  updateLogCounts();
+  checkLogAutoScroll();
+}
+
+function formatLogTime(ts) {
+  if (!ts) return '--:--:--';
+  if (typeof ts === 'string' && /^\d{2}:\d{2}:\d{2}/.test(ts)) {
+    return ts.substring(0, 8);
+  }
+  try {
+    let d;
+    if (typeof ts === 'number') {
+      d = new Date(ts > 1e11 ? ts : ts * 1000);
+    } else {
+      d = new Date(ts);
+    }
+    if (isNaN(d.getTime())) {
+      return String(ts);
+    }
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  } catch (e) {
+    return String(ts);
+  }
+}
+
+function getLogSourceClass(source) {
+  const s = (source || '').toLowerCase();
+  if (s === 'psiphon' || s === 'aether') return 'log-tag-psiphon';
+  if (s === 'xray') return 'log-tag-xray';
+  if (s === 'tun') return 'log-tag-tun';
+  if (s === 'system') return 'log-tag-system';
+  if (s === 'api') return 'log-tag-api';
+  return 'log-tag-system';
+}
+
+function getLogSourceLabel(source) {
+  const s = (source || '').toLowerCase();
+  if (s === 'psiphon') return 'PSIPHON';
+  if (s === 'aether') return 'AETHER';
+  if (s === 'xray') return 'XRAY';
+  if (s === 'tun') return 'TUN';
+  if (s === 'system') return 'SYSTEM';
+  if (s === 'api') return 'API';
+  return s ? s.toUpperCase() : 'LOG';
+}
+
+function getLogLevelClass(level) {
+  const lvl = (level || '').toLowerCase();
+  if (lvl === 'error' || lvl === 'err' || lvl === 'fatal') return 'log-level-error';
+  if (lvl === 'warn' || lvl === 'warning') return 'log-level-warn';
+  if (lvl === 'debug' || lvl === 'trace') return 'log-level-debug';
+  return 'log-level-info';
+}
+
+function createLogLineElement(log) {
+  const line = document.createElement('div');
+  line.className = 'log-line';
+
+  const timeSpan = document.createElement('span');
+  timeSpan.className = 'log-time';
+  timeSpan.textContent = formatLogTime(log.timestamp);
+
+  const tagSpan = document.createElement('span');
+  tagSpan.className = `log-tag ${getLogSourceClass(log.source)}`;
+  tagSpan.textContent = getLogSourceLabel(log.source);
+
+  const msgSpan = document.createElement('span');
+  msgSpan.className = `log-message ${getLogLevelClass(log.level)}`;
+  msgSpan.textContent = log.message;
+
+  line.appendChild(timeSpan);
+  line.appendChild(tagSpan);
+  line.appendChild(msgSpan);
+
+  return line;
+}
+
+function appendLogToDOM(entry) {
+  const consoleEl = document.getElementById('logConsole');
+  if (!consoleEl) return;
+
+  const emptyEl = consoleEl.querySelector('.terminal-empty');
+  if (emptyEl) {
+    emptyEl.remove();
+  }
+
+  const el = createLogLineElement(entry);
+  consoleEl.appendChild(el);
+
+  while (consoleEl.children.length > MAX_LOG_ENTRIES) {
+    consoleEl.removeChild(consoleEl.firstChild);
+  }
+}
+
+function updateLogCounts() {
+  const totalEl = document.getElementById('logTotalCount');
+  const visibleEl = document.getElementById('logVisibleCount');
+  if (totalEl) totalEl.textContent = allLogs.length;
+  if (visibleEl) visibleEl.textContent = filteredLogs.length;
+}
+
+function checkLogAutoScroll() {
+  const chk = document.getElementById('chkLogAutoScroll');
+  const consoleEl = document.getElementById('logConsole');
+  if (chk && chk.checked && consoleEl) {
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+}
+
+function copyLogsToClipboard() {
+  if (!filteredLogs || filteredLogs.length === 0) {
+    showToast('No logs to copy', 'info');
+    return;
+  }
+
+  const lines = filteredLogs.map(log => {
+    const time = formatLogTime(log.timestamp);
+    const src = (log.source || 'system').toLowerCase();
+    const lvl = (log.level || 'info').toUpperCase();
+    return `[${time}] [${src}] [${lvl}] ${log.message}`;
+  });
+
+  const text = lines.join('\n');
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        showToast('Logs copied to clipboard', 'success');
+      })
+      .catch(() => {
+        fallbackCopyText(text);
+      });
+  } else {
+    fallbackCopyText(text);
+  }
+}
+
+function fallbackCopyText(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('Logs copied to clipboard', 'success');
+  } catch (e) {
+    showToast('Failed to copy logs to clipboard', 'error');
+  }
+}
+
+function clearLogs() {
+  allLogs = [];
+  filteredLogs = [];
+
+  const consoleEl = document.getElementById('logConsole');
+  if (consoleEl) {
+    consoleEl.innerHTML = '<div class="terminal-empty">Console cleared. Waiting for logs...</div>';
+  }
+
+  updateLogCounts();
+
+  fetch('/api/logs/clear', { method: 'POST' }).catch(err => {
+    console.warn('POST /api/logs/clear failed or unavailable:', err);
+  });
+
+  showToast('Logs cleared', 'info');
+}
+
 
 
 

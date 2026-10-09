@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"freenode/pkg/cleanip"
+	"freenode/pkg/logger"
 )
 
 // Runner manages the lifecycle of the Psiphon / Aether circumvention engine
@@ -256,7 +257,10 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		HideWindow:    true,
 		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
 	}
+	cmd.Stdout = logger.Writer("psiphon", "info")
+	cmd.Stderr = logger.Writer("psiphon", "warn")
 
+	logger.Info("psiphon", "Starting engine: cleanIP=%s, sni=%s, cdnSet=%s, socks=%d, http=%d", r.cleanIP, sni, cdnSet, socksPort, httpPort)
 	log.Printf("[Psiphon] Starting engine: %s %s", aetherBin, strings.Join(args, " "))
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting aether psiphon process: %w", err)
@@ -279,6 +283,7 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 
 	// Wait up to 60 seconds for socks/http ports to start accepting connections
 	// (Meek CDN fronting takes ~20-35s to complete its obfuscated TLS handshake)
+	logger.Info("psiphon", "Waiting for local SOCKS5 proxy 127.0.0.1:%d to bind...", socksPort)
 	deadline := time.Now().Add(60 * time.Second)
 	ready := false
 	for time.Now().Before(deadline) {
@@ -292,10 +297,12 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 	}
 
 	if !ready {
+		logger.Error("psiphon", "Psiphon tunnel failed to bind ports %d/%d within 60s", socksPort, httpPort)
 		r.stopLocked()
 		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 60s", socksPort, httpPort)
 	}
 
+	logger.Info("psiphon", "Tunnel successfully active on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)
 	log.Printf("[Psiphon] Tunnel active on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)
 	return nil
 }
@@ -344,6 +351,7 @@ func (r *Runner) stopLocked() {
 
 	runtime.GC()
 	debug.FreeOSMemory()
+	logger.Info("psiphon", "Engine stopped cleanly")
 }
 
 // IsRunning reports whether Psiphon is currently executing

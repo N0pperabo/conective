@@ -24,6 +24,7 @@ import (
 
 	"freenode/pkg/cleanip"
 	"freenode/pkg/database"
+	"freenode/pkg/logger"
 	"freenode/pkg/models"
 	"freenode/pkg/psiphon"
 	"freenode/pkg/tun"
@@ -170,6 +171,11 @@ func (r *Runner) GetStatus() models.ConnectionStatus {
 
 // Connect starts the local proxy client for the chosen node and verifies health
 func (r *Runner) Connect(node *models.Config) error {
+	r.mu.RLock()
+	tunEnabled := r.tunMode
+	r.mu.RUnlock()
+	logger.Info("xray", "Connecting to node '%s' (%s, server=%s, port=%d, tun=%v)", node.Name, node.Protocol, node.Server, node.Port, tunEnabled)
+
 	if node.IsCDNIP() || node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting" {
 		r.mu.Lock()
 		if r.db != nil {
@@ -348,12 +354,15 @@ func (r *Runner) Connect(node *models.Config) error {
 				return fmt.Errorf("starting psiphon tun instance: %w", err)
 			}
 
+			logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s...", node.Server)
 			if err := r.tunMgr.SetupAdapter("ConectiveTUN", node.Server); err != nil {
+				logger.Error("tun", "Failed to setup TUN adapter: %v", err)
 				_ = instance.Close()
 				_ = r.psiphonRunner.Stop()
 				_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
 				return fmt.Errorf("setting up psiphon tun routes: %w", err)
 			}
+			logger.Info("tun", "TUN adapter and default routes configured successfully")
 
 			r.mu.Lock()
 			r.instance = instance
@@ -406,7 +415,7 @@ func (r *Runner) Connect(node *models.Config) error {
 		r.activeNode = nil
 		time.Sleep(500 * time.Millisecond) // Let previous session release ports and NDIS handle
 	}
-	tunEnabled := r.tunMode
+	tunEnabled = r.tunMode
 	tunAdapterName := "ConectiveTUN"
 
 	// Reset ports to configured base values to prevent port drifting across connections
@@ -660,11 +669,14 @@ func (r *Runner) Connect(node *models.Config) error {
 
 	// If TUN mode is enabled, set up adapter IP and routing
 	if tunEnabled {
+		logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s...", node.Server)
 		if err := r.tunMgr.SetupAdapter(tunAdapterName, node.Server); err != nil {
+			logger.Error("tun", "Failed to setup TUN adapter: %v", err)
 			_ = instance.Close()
 			_ = tun.ResetOrRemoveAdapter(tunAdapterName)
 			return fmt.Errorf("failed setting up TUN routes: %w", err)
 		}
+		logger.Info("tun", "TUN adapter and default routes configured successfully")
 	}
 
 	r.mu.Lock()
@@ -705,6 +717,7 @@ func (r *Runner) Connect(node *models.Config) error {
 
 // Disconnect stops the in-process client Xray instance and cleans up TUN
 func (r *Runner) Disconnect() (err error) {
+	logger.Info("xray", "Disconnecting active session...")
 	defer func() {
 		if rec := recover(); rec != nil {
 			log.Printf("[Runner] Panic during Disconnect recovered safely: %v", rec)
