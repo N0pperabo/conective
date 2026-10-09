@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -282,33 +281,11 @@ func (s *Server) handleTestSingleNode(w http.ResponseWriter, r *http.Request) {
 		if port <= 0 {
 			port = 443
 		}
-		probeSNI := node.SNI
-		if probeSNI == "" {
-			if strings.Contains(strings.ToLower(node.Tags), "cloudflare") || strings.Contains(strings.ToLower(node.Name), "cloudflare") {
-				probeSNI = "cp.cloudflare.com"
-			} else if strings.Contains(strings.ToLower(node.Tags), "cloudfront") || strings.Contains(strings.ToLower(node.Name), "cloudfront") {
-				probeSNI = "d1.cloudfront.net"
-			} else {
-				probeSNI = "a248.e.akamai.net"
-			}
-		}
-
 		addr := net.JoinHostPort(node.Server, strconv.Itoa(port))
 		dialer := &net.Dialer{Timeout: 3 * time.Second}
-		tlsDialer := &tls.Dialer{
-			NetDialer: dialer,
-			Config: &tls.Config{
-				ServerName:         probeSNI,
-				InsecureSkipVerify: true,
-			},
-		}
 
 		start := time.Now()
-		conn, dialErr := tlsDialer.DialContext(r.Context(), "tcp", addr)
-		if dialErr != nil {
-			conn, dialErr = dialer.DialContext(r.Context(), "tcp", addr)
-		}
-
+		conn, dialErr := dialer.DialContext(r.Context(), "tcp", addr)
 		if dialErr == nil {
 			_ = conn.Close()
 			latency = int(time.Since(start).Milliseconds())

@@ -276,8 +276,10 @@ func (r *Runner) Connect(node *models.Config) error {
 				},
 				"dns": v2go.M{
 					"servers": []string{
+						"https://1.1.1.1/dns-query",
+						"https://8.8.8.8/dns-query",
+						"tcp://1.1.1.1:53",
 						"1.1.1.1",
-						"8.8.8.8",
 					},
 				},
 				"inbounds": []v2go.M{
@@ -959,6 +961,12 @@ func (r *Runner) buildRoutingRules() []v2go.M {
 			"type":        "field",
 			"ip":          lanIPs,
 			"outboundTag": "direct",
+		},
+		{
+			"type":        "field",
+			"port":        "443",
+			"network":     "udp",
+			"outboundTag": "block",
 		},
 	}
 

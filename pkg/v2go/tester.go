@@ -3,7 +3,6 @@ package v2go
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -92,40 +91,18 @@ func (t *LiveTester) TestSingle(ctx context.Context, c *models.Config) (int, str
 		addr := net.JoinHostPort(c.Server, strconv.Itoa(port))
 		timeout := t.timeout
 		if timeout <= 0 {
-			timeout = 5 * time.Second
-		}
-
-		probeSNI := c.SNI
-		if probeSNI == "" {
-			if strings.Contains(strings.ToLower(c.Tags), "cloudflare") || strings.Contains(strings.ToLower(c.Name), "cloudflare") {
-				probeSNI = "cp.cloudflare.com"
-			} else if strings.Contains(strings.ToLower(c.Tags), "cloudfront") || strings.Contains(strings.ToLower(c.Name), "cloudfront") {
-				probeSNI = "d1.cloudfront.net"
-			} else {
-				probeSNI = "a248.e.akamai.net"
-			}
+			timeout = 3 * time.Second
 		}
 
 		dialer := &net.Dialer{Timeout: timeout}
-		tlsDialer := &tls.Dialer{
-			NetDialer: dialer,
-			Config: &tls.Config{
-				ServerName:         probeSNI,
-				InsecureSkipVerify: true,
-			},
-		}
-
 		start := time.Now()
-		conn, err := tlsDialer.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			conn, err = dialer.DialContext(ctx, "tcp", addr)
-		}
+		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
 			return -1, "", nil, err
 		}
+		latency := int(time.Since(start).Milliseconds())
 		_ = conn.Close()
 
-		latency := int(time.Since(start).Milliseconds())
 		if latency <= 0 {
 			latency = 1
 		}
