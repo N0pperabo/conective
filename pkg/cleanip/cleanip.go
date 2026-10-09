@@ -1072,12 +1072,12 @@ func CreateOrUpdateDirectPsiphonNodeWithName(db *database.DB, egressRegion strin
 	countryName := "Best Available (Auto)"
 	nodeName := customName
 	if nodeName == "" {
-		nodeName = "⚡ Psiphon Standard (Direct)"
+		nodeName = "Psiphon Standard (Direct)"
 		if egressRegion != "" {
 			countryCode = egressRegion
 			countryName = geoip.CountryName(egressRegion)
 			flag := geoip.Flag(egressRegion)
-			nodeName = fmt.Sprintf("⚡ Psiphon Direct | %s %s", flag, countryName)
+			nodeName = fmt.Sprintf("Psiphon Direct | %s %s", flag, countryName)
 		}
 	} else if egressRegion != "" {
 		countryCode = egressRegion

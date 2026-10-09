@@ -763,6 +763,25 @@
           اسکن هوشمند آی‌پی‌های تمیز شبکه‌های CDN (آکامای شیر و خورشید، آمازون کلودفرانت و کلودفلر). با فرانتینگ دامنه، ترافیک بدون افت سرعت فیلترینگ را دور می‌زند.
         </p>
 
+        <!-- Quick Action: Direct Psiphon Connection -->
+        <div class="direct-psiphon-card" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.05) 100%); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;">
+          <div style="direction: rtl; text-align: right; flex: 1; min-width: 240px;">
+            <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; color: #f59e0b;">
+              <span>اتصال مستقیم با سایفون معمولی (بدون نیاز به آی‌پی)</span>
+              <span id="directPsiphonTunBadge" class="badge badge-success" style="font-size: 11px;">TUN Mode: فعال</span>
+              <span id="directPsiphonGamingBadge" class="badge badge-secondary" style="font-size: 11px;">Gaming Mode: عادی</span>
+            </div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;">
+              بدون نیاز به اسکن یا یافتن آی‌پی تمیز؛ مستقیماً با سایفون عادی وصل شوید. وضعیت فعال بودن کارت شبکه TUN و گیمینگ مود بر اساس کلیدهای اصلی برنامه اعمال خواهد شد.
+            </div>
+          </div>
+          <div>
+            <button id="btnConnectDirectPsiphonMain" class="btn btn-warning btn-glow" style="font-weight: 600; padding: 9px 20px; white-space: nowrap;">
+              اتصال با سایفون معمولی
+            </button>
+          </div>
+        </div>
+
         <!-- Scanner Configuration Controls -->
         <div class="cleanip-controls-box">
           <div class="form-row">
@@ -827,7 +846,7 @@
           <div style="display: flex; gap: 10px; margin-top: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap;">
             <div>
               <button id="btnTopConnectDirectPsiphon" class="btn btn-warning btn-sm btn-glow" title="اتصال مستقیم به سایفون عادی بدون نیاز به آی‌پی تمیز">
-                ⚡ اتصال مستقیم به سایفون عادی (Direct Psiphon)
+                اتصال با سایفون معمولی (Direct Psiphon)
               </button>
             </div>
             <div style="display: flex; gap: 10px;">
@@ -887,7 +906,7 @@
           <h4 style="font-size: 14px; font-weight: 600;">Fastest Clean Edge IPs (<span id="cleanIPFoundCount">0</span> found)</h4>
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <button id="btnConnectDirectPsiphon" class="btn btn-warning btn-sm btn-glow" title="اتصال مستقیم به سایفون عادی بدون نیاز به آی‌پی تمیز">
-              ⚡ اتصال مستقیم به سایفون عادی (Direct Psiphon)
+              اتصال با سایفون معمولی (Direct Psiphon)
             </button>
             <button id="btnSaveFastestCleanIP" class="btn btn-secondary btn-sm" disabled title="افزودن سریع‌ترین آی‌پی به کانفیگ‌های اصلی">
               افزودن سریع‌ترین به کانفیگ‌ها

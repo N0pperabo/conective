@@ -171,17 +171,23 @@ func (r *Runner) GetStatus() models.ConnectionStatus {
 
 // Connect starts the local proxy client for the chosen node and verifies health
 func (r *Runner) Connect(node *models.Config) error {
-	r.mu.RLock()
+	r.mu.Lock()
+	if r.db != nil {
+		r.tunMode = r.db.GetSetting("tun_mode", "false") == "true"
+		r.gamingMode = r.db.GetSetting("gaming_mode", "false") == "true"
+	}
 	tunEnabled := r.tunMode
-	r.mu.RUnlock()
-	logger.Info("xray", "Connecting to node '%s' (%s, server=%s, port=%d, tun=%v)", node.Name, node.Protocol, node.Server, node.Port, tunEnabled)
+	gamingMode := r.gamingMode
+	r.mu.Unlock()
+	logger.Info("xray", "Connecting to node '%s' (%s, server=%s, port=%d, tun=%v, gaming=%v)", node.Name, node.Protocol, node.Server, node.Port, tunEnabled, gamingMode)
 
 	if node.IsCDNIP() || node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting" {
 		r.mu.Lock()
 		if r.db != nil {
+			r.tunMode = r.db.GetSetting("tun_mode", "false") == "true"
 			r.gamingMode = r.db.GetSetting("gaming_mode", "false") == "true"
 		}
-		gamingMode := r.gamingMode
+		gamingMode = r.gamingMode
 
 		if r.instance != nil {
 			if r.tunMode {
@@ -438,11 +444,12 @@ func (r *Runner) Connect(node *models.Config) error {
 
 	r.mu.Lock()
 	if r.db != nil {
+		r.tunMode = r.db.GetSetting("tun_mode", "false") == "true"
 		r.shareLAN = r.db.GetSetting("share_lan", "false") == "true"
 		r.gamingMode = r.db.GetSetting("gaming_mode", "false") == "true"
 	}
 	shareLAN := r.shareLAN
-	gamingMode := r.gamingMode
+	gamingMode = r.gamingMode
 
 	if r.instance != nil {
 		if r.tunMode {
