@@ -17,6 +17,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"freenode/pkg/cleanip"
 )
 
 // Runner manages the lifecycle of the Psiphon / Aether circumvention engine
@@ -96,24 +98,10 @@ func FindBinaries() (aetherPath, psiphonPath string, err error) {
 }
 
 func detectIPDefaults(ip string) (sni, cdnSet string) {
-	// Akamai ranges / ShirOKhorshid
-	if strings.HasPrefix(ip, "23.") || strings.HasPrefix(ip, "184.24.") || strings.HasPrefix(ip, "92.123.") ||
-		strings.HasPrefix(ip, "2.16.") || strings.HasPrefix(ip, "2.22.") || strings.HasPrefix(ip, "104.112.") ||
-		strings.HasPrefix(ip, "72.246.") || strings.HasPrefix(ip, "185.200.") || strings.HasPrefix(ip, "185.143.") ||
-		strings.HasPrefix(ip, "2.19.") || strings.HasPrefix(ip, "72.18.") {
-		return "a248.e.akamai.net", "psiphon-akamai"
+	_, detSNI, detSet := cleanip.DetectCDN(ip)
+	if detSNI != "" {
+		return detSNI, detSet
 	}
-	// Amazon CloudFront
-	if strings.HasPrefix(ip, "13.") || strings.HasPrefix(ip, "54.") || strings.HasPrefix(ip, "52.") ||
-		strings.HasPrefix(ip, "99.") || strings.HasPrefix(ip, "143.204.") {
-		return "d1.cloudfront.net", "cloudfront"
-	}
-	// Cloudflare
-	if strings.HasPrefix(ip, "162.159.") || strings.HasPrefix(ip, "188.114.") || strings.HasPrefix(ip, "104.16.") ||
-		strings.HasPrefix(ip, "104.24.") || strings.HasPrefix(ip, "172.64.") || strings.HasPrefix(ip, "198.41.") {
-		return "cloudflare.com", "cloudflare"
-	}
-	// Default to Akamai (ShirOKhorshid default)
 	return "a248.e.akamai.net", "psiphon-akamai"
 }
 
@@ -154,9 +142,15 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		"--log-level", "info",
 	}
 
-	if r.cleanIP != "" && r.cleanIP != "auto" {
-		args = append(args, "--psiphon-cdn-ips", r.cleanIP)
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		appData = "."
+	}
+	psiphonDir := filepath.Join(appData, "Conective", "psiphon")
+	_ = os.MkdirAll(psiphonDir, 0755)
+	args = append(args, "--psiphon-dir", psiphonDir)
 
+	if r.cleanIP != "" && r.cleanIP != "auto" {
 		if sni == "" || cdnSet == "" {
 			detSNI, detSet := detectIPDefaults(r.cleanIP)
 			if sni == "" {
@@ -166,6 +160,12 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 				cdnSet = detSet
 			}
 		}
+
+		// Enforce CDN fronting mode:
+		// --psiphon-mode cdn locks Psiphon strictly to FRONTED-MEEK protocols through the clean IP,
+		// preventing any fallback to plain direct SSH (port 22) or unfronted connections.
+		args = append(args, "--psiphon-mode", "cdn")
+		args = append(args, "--psiphon-cdn-ips", r.cleanIP)
 
 		if sni != "" {
 			args = append(args, "--psiphon-cdn-sni", sni)
@@ -201,11 +201,12 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		r.mu.Unlock()
 	}(cmd)
 
-	// Wait up to 15 seconds for socks/http ports to start accepting connections
-	deadline := time.Now().Add(15 * time.Second)
+	// Wait up to 60 seconds for socks/http ports to start accepting connections
+	// (Meek CDN fronting takes ~20-35s to complete its obfuscated TLS handshake)
+	deadline := time.Now().Add(60 * time.Second)
 	ready := false
 	for time.Now().Before(deadline) {
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), 500*time.Millisecond)
 		if dialErr == nil {
 			_ = conn.Close()
@@ -216,7 +217,7 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 
 	if !ready {
 		r.stopLocked()
-		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 15s", socksPort, httpPort)
+		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 60s", socksPort, httpPort)
 	}
 
 	log.Printf("[Psiphon] Tunnel active on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)

@@ -1284,7 +1284,7 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lat, exitIP, err := s.runner.VerifyTunnel(12 * time.Second)
+	lat, exitIP, err := s.runner.VerifyTunnel(25 * time.Second)
 	if err == nil {
 		cleanNode.Latency = lat
 		cleanNode.ExitIP = exitIP

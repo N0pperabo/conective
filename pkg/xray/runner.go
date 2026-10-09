@@ -22,6 +22,7 @@ import (
 	_ "github.com/xtls/xray-core/main/distro/all"
 	_ "github.com/xtls/xray-core/proxy/tun"
 
+	"freenode/pkg/cleanip"
 	"freenode/pkg/database"
 	"freenode/pkg/models"
 	"freenode/pkg/psiphon"
@@ -237,6 +238,16 @@ func (r *Runner) Connect(node *models.Config) error {
 			cdnSet = "cloudflare"
 		}
 
+		if sni == "" || cdnSet == "" {
+			_, detSNI, detSet := cleanip.DetectCDN(node.Server)
+			if sni == "" {
+				sni = detSNI
+			}
+			if cdnSet == "" {
+				cdnSet = detSet
+			}
+		}
+
 		if err := r.psiphonRunner.StartWithSNI(node.Server, sni, cdnSet, r.socksPort, r.httpPort); err != nil {
 			return fmt.Errorf("starting psiphon tunnel: %w", err)
 		}
@@ -357,7 +368,7 @@ func (r *Runner) Connect(node *models.Config) error {
 		r.mu.Unlock()
 
 		go func() {
-			lat, exitIP, err := r.psiphonRunner.VerifyTunnel(10 * time.Second)
+			lat, exitIP, err := r.psiphonRunner.VerifyTunnel(25 * time.Second)
 			if err == nil {
 				r.mu.Lock()
 				if lat > 0 {
