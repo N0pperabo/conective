@@ -208,13 +208,13 @@ func getSafePsiphonDir() string {
 // StartWithSNI launches Aether in Psiphon-only mode with the selected Clean CDN IP, custom SNI and CDN set
 func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort int) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	// Stop any existing session
 	r.stopLocked()
 
 	aetherBin, psiphonBin, err := FindBinaries()
 	if err != nil {
+		r.mu.Unlock()
 		return fmt.Errorf("locating psiphon binaries: %w", err)
 	}
 
@@ -280,6 +280,7 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 	logger.Info("psiphon", "Starting engine: cleanIP=%s, sni=%s, cdnSet=%s, socks=%d, http=%d", r.cleanIP, sni, cdnSet, socksPort, httpPort)
 	log.Printf("[Psiphon] Starting engine: %s %s", aetherBin, strings.Join(args, " "))
 	if err := cmd.Start(); err != nil {
+		r.mu.Unlock()
 		return fmt.Errorf("starting aether psiphon process: %w", err)
 	}
 
@@ -298,23 +299,30 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		r.mu.Unlock()
 	}(cmd)
 
+	// Release mutex so we do not block other operations or deadlock in probe loops
+	r.mu.Unlock()
+
 	// Step 1: Wait up to 15 seconds for local ports to bind
 	logger.Info("psiphon", "Waiting for local SOCKS5 proxy 127.0.0.1:%d to bind...", socksPort)
 	bindDeadline := time.Now().Add(15 * time.Second)
 	portsBound := false
 	for time.Now().Before(bindDeadline) {
-		time.Sleep(300 * time.Millisecond)
+		if !r.IsRunning() {
+			_ = r.Stop()
+			return fmt.Errorf("psiphon process terminated before ports bound")
+		}
 		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), 400*time.Millisecond)
 		if dialErr == nil {
 			_ = conn.Close()
 			portsBound = true
 			break
 		}
+		time.Sleep(300 * time.Millisecond)
 	}
 
 	if !portsBound {
 		logger.Error("psiphon", "Psiphon tunnel failed to bind ports %d/%d within 15s", socksPort, httpPort)
-		r.stopLocked()
+		_ = r.Stop()
 		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 15s", socksPort, httpPort)
 	}
 
@@ -339,11 +347,8 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 
 	for time.Now().Before(tunnelDeadline) {
 		attempt++
-		r.mu.Lock()
-		running := r.running
-		r.mu.Unlock()
-		if !running {
-			r.stopLocked()
+		if !r.IsRunning() {
+			_ = r.Stop()
 			return fmt.Errorf("psiphon process terminated unexpectedly during tunnel establishment")
 		}
 
@@ -364,7 +369,7 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 
 	if !tunnelReady {
 		logger.Error("psiphon", "Psiphon tunnel handshake timed out after 45s (no active tunnel established)")
-		r.stopLocked()
+		_ = r.Stop()
 		return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 45s", r.cleanIP)
 	}
 
