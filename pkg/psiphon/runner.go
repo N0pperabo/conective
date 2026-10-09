@@ -2,6 +2,7 @@ package psiphon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -105,6 +106,76 @@ func detectIPDefaults(ip string) (sni, cdnSet string) {
 	return "a248.e.akamai.net", "psiphon-akamai"
 }
 
+// ShiroCdnFrontingConfig generates the exact configuration matching ShirOKhorshid Android client
+func ShiroCdnFrontingConfig(cleanIP, sni string) ([]byte, error) {
+	if sni == "" {
+		sni = "a248.e.akamai.net"
+	}
+
+	cfg := map[string]any{
+		"LimitTunnelProtocols": []string{
+			"FRONTED-MEEK-CDN-OSSH",
+			"FRONTED-MEEK-CDN-HTTP-OSSH",
+			"FRONTED-MEEK-CDN-QUIC-OSSH",
+		},
+		"DisableTactics":                      true,
+		"FrontedMeekDialOverridesProbability": 1.0,
+		"FrontedMeekCDNScanUseBuiltInSpec":    true,
+		"FrontedMeekDialOverrides": []map[string]any{
+			{
+				"OverrideID":                     "fastly-provider",
+				"MatchFrontingProviderIDRegexes": []string{"(?i)fastly"},
+				"DialAddresses":                  []string{"pypi.org"},
+				"SNIServerName":                  "pypi.org",
+				"VerifyServerNames": []string{
+					"www.python.org", "pypi.org", "fastly.com", "www.fastly.com",
+					"developer.fastly.com", "githubassets.com", "github.com",
+					"github.io", "githubusercontent.com",
+				},
+				"ALPNProtocols": []string{"h2", "http/1.1"},
+				"TLSProfile":    "Chrome-83",
+			},
+			{
+				"OverrideID":              "fastly-address",
+				"MatchDialAddressRegexes": []string{"(?i)(fastly|pypi|python|github)"},
+				"DialAddresses":           []string{"pypi.org"},
+				"SNIServerName":           "pypi.org",
+				"VerifyServerNames": []string{
+					"www.python.org", "pypi.org", "fastly.com", "www.fastly.com",
+					"developer.fastly.com", "githubassets.com", "github.com",
+					"github.io", "githubusercontent.com",
+				},
+				"ALPNProtocols": []string{"h2", "http/1.1"},
+				"TLSProfile":    "Chrome-83",
+			},
+			{
+				"OverrideID":              "edge-custom",
+				"MatchDialAddressRegexes": []string{".*"},
+				"DialAddresses":           []string{cleanIP},
+				"SNIServerName":           sni,
+				"VerifyServerNames": []string{
+					sni,
+					cleanIP,
+					"a248.e.akamai.net",
+					"a.akamaized.net",
+					"a.akamaized-staging.net",
+					"a.akamaihd.net",
+					"a.akamaihd-staging.net",
+					"www.akamai.com",
+				},
+				"ALPNProtocols": []string{"http/1.1"},
+				"TLSProfile":    "Chrome-83",
+			},
+		},
+		"FrontedMeekCDNScanSpec": map[string]any{
+			"IPCandidates":   []string{cleanIP},
+			"SNIServerNames": []string{sni},
+		},
+	}
+
+	return json.MarshalIndent(cfg, "", "  ")
+}
+
 // Start launches Aether in Psiphon-only mode with the selected Clean CDN IP
 func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
 	return r.StartWithSNI(cleanIP, "", "", socksPort, httpPort)
@@ -134,21 +205,22 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 	r.httpPort = httpPort
 	r.cleanIP = strings.TrimSpace(cleanIP)
 
-	args := []string{
-		"--psiphon-only",
-		"--psiphon-bin", psiphonBin,
-		"--bind", fmt.Sprintf("127.0.0.1:%d", socksPort),
-		"--psiphon-http", fmt.Sprintf("127.0.0.1:%d", httpPort),
-		"--log-level", "info",
-	}
-
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
 		appData = "."
 	}
 	psiphonDir := filepath.Join(appData, "Conective", "psiphon")
 	_ = os.MkdirAll(psiphonDir, 0755)
-	args = append(args, "--psiphon-dir", psiphonDir)
+	_ = os.Remove(filepath.Join(psiphonDir, "psiphon.boltdb.lock"))
+
+	args := []string{
+		"--psiphon-only",
+		"--psiphon-bin", psiphonBin,
+		"--bind", fmt.Sprintf("127.0.0.1:%d", socksPort),
+		"--psiphon-http", fmt.Sprintf("127.0.0.1:%d", httpPort),
+		"--psiphon-dir", psiphonDir,
+		"--log-level", "info",
+	}
 
 	if r.cleanIP != "" && r.cleanIP != "auto" {
 		if sni == "" || cdnSet == "" {
@@ -161,12 +233,16 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 			}
 		}
 
-		// Enforce CDN fronting mode:
-		// --psiphon-mode cdn locks Psiphon strictly to FRONTED-MEEK protocols through the clean IP,
-		// preventing any fallback to plain direct SSH (port 22) or unfronted connections.
-		args = append(args, "--psiphon-mode", "cdn")
-		args = append(args, "--psiphon-cdn-ips", r.cleanIP)
+		// Write ShirOKhorshid-exact config JSON and feed it to Aether
+		cfgJSON, err := ShiroCdnFrontingConfig(r.cleanIP, sni)
+		if err == nil {
+			configPath := filepath.Join(psiphonDir, "shiro_config.json")
+			if writeErr := os.WriteFile(configPath, cfgJSON, 0644); writeErr == nil {
+				args = append(args, "--psiphon-config", configPath)
+			}
+		}
 
+		args = append(args, "--psiphon-cdn-ips", r.cleanIP)
 		if sni != "" {
 			args = append(args, "--psiphon-cdn-sni", sni)
 		}
@@ -255,6 +331,11 @@ func (r *Runner) stopLocked() {
 	// Cleanup any orphan engine processes silently
 	_ = silentCmd("taskkill", "/F", "/IM", "aether.exe").Run()
 	_ = silentCmd("taskkill", "/F", "/IM", "psiphon-tunnel-core.exe").Run()
+
+	appData := os.Getenv("APPDATA")
+	if appData != "" {
+		_ = os.Remove(filepath.Join(appData, "Conective", "psiphon", "psiphon.boltdb.lock"))
+	}
 
 	r.running = false
 	r.cleanIP = ""
