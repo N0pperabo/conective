@@ -354,8 +354,13 @@ func (r *Runner) Connect(node *models.Config) error {
 				return fmt.Errorf("starting psiphon tun instance: %w", err)
 			}
 
-			logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s...", node.Server)
-			if err := r.tunMgr.SetupAdapter("ConectiveTUN", node.Server); err != nil {
+			psiphonBypassIPs := []string{
+				"1.1.1.1", "8.8.8.8",
+				"23.215.0.206", "23.215.0.203", "23.212.250.91", "23.212.250.78",
+				"23.12.147.13", "23.12.147.29", "23.73.207.8", "23.73.207.15", "92.123.102.43",
+			}
+			logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s with Psiphon CDN bypass routes...", node.Server)
+			if err := r.tunMgr.SetupAdapterWithBypass("ConectiveTUN", node.Server, psiphonBypassIPs); err != nil {
 				logger.Error("tun", "Failed to setup TUN adapter: %v", err)
 				_ = instance.Close()
 				_ = r.psiphonRunner.Stop()

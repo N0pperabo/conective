@@ -182,6 +182,29 @@ func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
 	return r.StartWithSNI(cleanIP, "", "", socksPort, httpPort)
 }
 
+func getSafePsiphonDir() string {
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		appData = "."
+	}
+	baseDir := filepath.Join(appData, "Conective", "psiphon")
+	_ = os.MkdirAll(baseDir, 0755)
+
+	lockFile := filepath.Join(baseDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb")
+	if _, err := os.Stat(lockFile); err == nil {
+		f, openErr := os.OpenFile(lockFile, os.O_RDWR, 0600)
+		if openErr != nil {
+			// Primary database is held by another process; use an isolated instance directory
+			uniqueDir := filepath.Join(baseDir, fmt.Sprintf("session_%d", time.Now().UnixNano()%100000))
+			_ = os.MkdirAll(uniqueDir, 0755)
+			return uniqueDir
+		}
+		_ = f.Close()
+	}
+	_ = os.Remove(filepath.Join(baseDir, "psiphon.boltdb.lock"))
+	return baseDir
+}
+
 // StartWithSNI launches Aether in Psiphon-only mode with the selected Clean CDN IP, custom SNI and CDN set
 func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort int) error {
 	r.mu.Lock()
@@ -206,13 +229,7 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 	r.httpPort = httpPort
 	r.cleanIP = strings.TrimSpace(cleanIP)
 
-	appData := os.Getenv("APPDATA")
-	if appData == "" {
-		appData = "."
-	}
-	psiphonDir := filepath.Join(appData, "Conective", "psiphon")
-	_ = os.MkdirAll(psiphonDir, 0755)
-	_ = os.Remove(filepath.Join(psiphonDir, "psiphon.boltdb.lock"))
+	psiphonDir := getSafePsiphonDir()
 
 	args := []string{
 		"--psiphon-only",
@@ -281,29 +298,78 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		r.mu.Unlock()
 	}(cmd)
 
-	// Wait up to 60 seconds for socks/http ports to start accepting connections
-	// (Meek CDN fronting takes ~20-35s to complete its obfuscated TLS handshake)
+	// Step 1: Wait up to 15 seconds for local ports to bind
 	logger.Info("psiphon", "Waiting for local SOCKS5 proxy 127.0.0.1:%d to bind...", socksPort)
-	deadline := time.Now().Add(60 * time.Second)
-	ready := false
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), 500*time.Millisecond)
+	bindDeadline := time.Now().Add(15 * time.Second)
+	portsBound := false
+	for time.Now().Before(bindDeadline) {
+		time.Sleep(300 * time.Millisecond)
+		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), 400*time.Millisecond)
 		if dialErr == nil {
 			_ = conn.Close()
-			ready = true
+			portsBound = true
 			break
 		}
 	}
 
-	if !ready {
-		logger.Error("psiphon", "Psiphon tunnel failed to bind ports %d/%d within 60s", socksPort, httpPort)
+	if !portsBound {
+		logger.Error("psiphon", "Psiphon tunnel failed to bind ports %d/%d within 15s", socksPort, httpPort)
 		r.stopLocked()
-		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 60s", socksPort, httpPort)
+		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 15s", socksPort, httpPort)
 	}
 
-	logger.Info("psiphon", "Tunnel successfully active on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)
-	log.Printf("[Psiphon] Tunnel active on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)
+	logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating CDN tunnel with %s...", socksPort, httpPort, r.cleanIP)
+
+	// Step 2: Probe through Psiphon's local HTTP proxy until tunnel is active and passing traffic
+	// Meek CDN handshake takes ~10-25s to establish the encrypted OSSH tunnel
+	tunnelClient := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(&url.URL{
+				Scheme: "http",
+				Host:   fmt.Sprintf("127.0.0.1:%d", httpPort),
+			}),
+			DisableKeepAlives: true,
+		},
+		Timeout: 3 * time.Second,
+	}
+
+	tunnelDeadline := time.Now().Add(45 * time.Second)
+	tunnelReady := false
+	attempt := 0
+
+	for time.Now().Before(tunnelDeadline) {
+		attempt++
+		r.mu.Lock()
+		running := r.running
+		r.mu.Unlock()
+		if !running {
+			r.stopLocked()
+			return fmt.Errorf("psiphon process terminated unexpectedly during tunnel establishment")
+		}
+
+		resp, err := tunnelClient.Get("http://cp.cloudflare.com/generate_204")
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == 204 || resp.StatusCode == 200 {
+				tunnelReady = true
+				break
+			}
+		}
+
+		if attempt%3 == 0 {
+			logger.Info("psiphon", "CDN fronting handshake in progress (waiting for tunnel to establish, %ds elapsed)...", attempt)
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if !tunnelReady {
+		logger.Error("psiphon", "Psiphon tunnel handshake timed out after 45s (no active tunnel established)")
+		r.stopLocked()
+		return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 45s", r.cleanIP)
+	}
+
+	logger.Info("psiphon", "Tunnel successfully active and verified on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)
+	log.Printf("[Psiphon] Tunnel active and verified on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)
 	return nil
 }
 

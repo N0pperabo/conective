@@ -47,6 +47,7 @@ type Manager struct {
 	ifIndex           int
 	adapterName       string
 	serverIP          string
+	bypassIPs         []string
 	defaultGateway    string
 	physicalInterface string
 }
@@ -470,6 +471,11 @@ func (m *Manager) ResetOrRemoveAdapter(adapterName string) error {
 
 // SetupAdapter configures the Wintun adapter IP, DNS, and on-link default routing
 func (m *Manager) SetupAdapter(adapterName, serverHost string) error {
+	return m.SetupAdapterWithBypass(adapterName, serverHost, nil)
+}
+
+// SetupAdapterWithBypass configures the Wintun adapter and adds direct physical gateway routes for serverHost and extra bypass IPs
+func (m *Manager) SetupAdapterWithBypass(adapterName, serverHost string, extraBypassIPs []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -521,9 +527,20 @@ func (m *Manager) SetupAdapter(adapterName, serverHost string) error {
 	_ = setDNS2.Run()
 
 	// 6. Direct route for proxy server through physical gateway (prevents routing loop)
+	m.bypassIPs = nil
 	if sIP != "" {
 		addServerRoute := silentCmd("route", "add", sIP, "mask", "255.255.255.255", gw, "metric", "1")
 		_ = addServerRoute.Run()
+		m.bypassIPs = append(m.bypassIPs, sIP)
+	}
+
+	for _, bIP := range extraBypassIPs {
+		bIP = strings.TrimSpace(bIP)
+		if net.ParseIP(bIP) != nil && bIP != sIP {
+			addBypass := silentCmd("route", "add", bIP, "mask", "255.255.255.255", gw, "metric", "1")
+			_ = addBypass.Run()
+			m.bypassIPs = append(m.bypassIPs, bIP)
+		}
 	}
 
 	// 7. Add on-link /1 default routes directly through Wintun interface index
@@ -550,11 +567,11 @@ func (m *Manager) TeardownAdapter() error {
 	r2 := silentCmd("route", "delete", "128.0.0.0", "mask", "128.0.0.0")
 	_ = r2.Run()
 
-	if m.serverIP != "" {
-		delServerRoute := silentCmd("route", "delete", m.serverIP)
-		_ = delServerRoute.Run()
-		m.serverIP = ""
+	for _, ip := range m.bypassIPs {
+		_ = silentCmd("route", "delete", ip).Run()
 	}
+	m.bypassIPs = nil
+	m.serverIP = ""
 
 	m.adapterName = ""
 	m.active = false
