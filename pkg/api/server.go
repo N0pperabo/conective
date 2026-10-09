@@ -282,31 +282,72 @@ func (s *Server) handleTestSingleNode(w http.ResponseWriter, r *http.Request) {
 	var ipData *v2go.IPDataDetails
 	var testErr error
 
-	isPsiphonOrCleanIP := node.IsCDNIP() || node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting"
+	isPsiphonOrCleanIP := node.IsCDNIP() || node.Protocol == "psiphon" || strings.HasPrefix(node.Identity, "cleanip-") || node.Source == "Clean IP Fronting" || strings.Contains(strings.ToLower(node.Tags), "psiphon")
 
 	if isPsiphonOrCleanIP {
-		port := node.Port
-		if port <= 0 {
-			port = 443
-		}
-		addr := net.JoinHostPort(node.Server, strconv.Itoa(port))
-		dialer := &net.Dialer{Timeout: 3 * time.Second}
+		cleanIP := strings.TrimSpace(node.Server)
+		isDirect := cleanIP == "" || cleanIP == "direct" || cleanIP == "auto" || strings.EqualFold(node.Transport, "direct") || strings.Contains(strings.ToLower(node.Tags), "direct")
 
-		start := time.Now()
-		conn, dialErr := dialer.DialContext(r.Context(), "tcp", addr)
-		if dialErr == nil {
-			_ = conn.Close()
-			latency = int(time.Since(start).Milliseconds())
-			if latency <= 0 {
-				latency = 1
-			}
-			exitIP = node.Server
-			if node.ExitIP != "" {
-				exitIP = node.ExitIP
+		if isDirect {
+			// Direct Psiphon mode has no static CDN edge server to dial.
+			// 1. If Psiphon is currently running and actively routed to this node, probe through it:
+			if s.runner != nil && s.runner.IsPsiphon() && s.runner.GetActiveNode() != nil && s.runner.GetActiveNode().ID == node.ID {
+				lat, exitIPFound, probeErr := s.runner.VerifyTunnel(2 * time.Second)
+				if probeErr == nil && lat > 0 {
+					latency = lat
+					exitIP = exitIPFound
+				} else {
+					latency = -1
+					testErr = probeErr
+				}
+			} else {
+				// 2. Otherwise verify live Internet reachability for the Psiphon discovery engine
+				checkpoints := []string{"1.1.1.1:443", "8.8.8.8:443", "9.9.9.9:443"}
+				dialer := &net.Dialer{Timeout: 2 * time.Second}
+				connectedCheckpoint := false
+				for _, cp := range checkpoints {
+					start := time.Now()
+					conn, dialErr := dialer.DialContext(r.Context(), "tcp", cp)
+					if dialErr == nil {
+						_ = conn.Close()
+						latency = int(time.Since(start).Milliseconds())
+						if latency <= 0 {
+							latency = 1
+						}
+						exitIP = "Direct Psiphon"
+						connectedCheckpoint = true
+						break
+					}
+				}
+				if !connectedCheckpoint {
+					latency = -1
+					testErr = fmt.Errorf("upstream checkpoint unreachable")
+				}
 			}
 		} else {
-			latency = -1
-			testErr = dialErr
+			port := node.Port
+			if port <= 0 {
+				port = 443
+			}
+			addr := net.JoinHostPort(cleanIP, strconv.Itoa(port))
+			dialer := &net.Dialer{Timeout: 3 * time.Second}
+
+			start := time.Now()
+			conn, dialErr := dialer.DialContext(r.Context(), "tcp", addr)
+			if dialErr == nil {
+				_ = conn.Close()
+				latency = int(time.Since(start).Milliseconds())
+				if latency <= 0 {
+					latency = 1
+				}
+				exitIP = node.Server
+				if node.ExitIP != "" {
+					exitIP = node.ExitIP
+				}
+			} else {
+				latency = -1
+				testErr = dialErr
+			}
 		}
 	} else {
 		timeout, _ := strconv.Atoi(s.db.GetSetting("test_timeout_sec", "5"))
@@ -374,6 +415,9 @@ func (s *Server) handleNodeIPData(w http.ResponseWriter, r *http.Request) {
 	targetIP := node.ExitIP
 	if targetIP == "" {
 		targetIP = node.Server
+	}
+	if targetIP == "direct" || targetIP == "auto" {
+		targetIP = ""
 	}
 
 	details, err := v2go.QueryIPData(r.Context(), nil, targetIP)
@@ -1296,28 +1340,43 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 		Latency int    `json:"latency"`
 		CDN     string `json:"cdn"`
 		SNI     string `json:"sni"`
+		Region  string `json:"region"`
+		Direct  bool   `json:"direct"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	cleanIP := strings.TrimSpace(req.IP)
-	if cleanIP == "" {
-		best := s.cleanIPMgr.GetBestIPs(1)
-		if len(best) > 0 {
-			cleanIP = best[0].IP
-			req.Latency = best[0].Latency
-		} else {
-			cleanIP = "23.209.210.213"
+	isDirect := req.Direct || cleanIP == "direct" || cleanIP == "psiphon-direct"
+
+	var cleanNode *models.Config
+	var err error
+
+	if isDirect {
+		cleanNode, err = cleanip.CreateOrUpdateDirectPsiphonNode(s.db, req.Region)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("failed setting up Direct Psiphon tunnel: %v", err))
+			return
 		}
-	}
+	} else {
+		if cleanIP == "" {
+			best := s.cleanIPMgr.GetBestIPs(1)
+			if len(best) > 0 {
+				cleanIP = best[0].IP
+				req.Latency = best[0].Latency
+			} else {
+				cleanIP = "23.209.210.213"
+			}
+		}
 
-	cleanNode, err := cleanip.CreateOrUpdateCleanIPNodeWithName(s.db, cleanIP, req.Latency, "")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("failed setting up Clean IP tunnel: %v", err))
-		return
-	}
+		cleanNode, err = cleanip.CreateOrUpdateCleanIPNodeWithRegion(s.db, cleanIP, req.Latency, "", req.Region)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("failed setting up Clean IP tunnel: %v", err))
+			return
+		}
 
-	if req.SNI != "" {
-		cleanNode.SNI = req.SNI
+		if req.SNI != "" {
+			cleanNode.SNI = req.SNI
+		}
 	}
 
 	if r.URL.Query().Get("dry_run") == "true" {
@@ -1326,7 +1385,11 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.runner.Connect(cleanNode); err != nil {
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("failed connecting via Clean IP %s: %v", cleanIP, err))
+		if isDirect {
+			writeErr(w, http.StatusBadGateway, fmt.Sprintf("failed connecting directly to Psiphon: %v", err))
+		} else {
+			writeErr(w, http.StatusBadGateway, fmt.Sprintf("failed connecting via Clean IP %s: %v", cleanIP, err))
+		}
 		return
 	}
 
@@ -1345,10 +1408,21 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = s.db.RecordConnectionStart(cleanNode.ID, cleanNode.Server, cleanNode.Protocol)
 
+	msg := fmt.Sprintf("Connected via Clean IP %s (Psiphon Fronting)", cleanIP)
+	if isDirect {
+		regLabel := "Auto"
+		if req.Region != "" {
+			regLabel = req.Region
+		}
+		msg = fmt.Sprintf("Connected directly to standard Psiphon (Region: %s)", regLabel)
+	} else if req.Region != "" {
+		msg = fmt.Sprintf("Connected via Clean IP %s (Psiphon Fronting, Region: %s)", cleanIP, req.Region)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"node":    cleanNode,
-		"message": fmt.Sprintf("Connected via Clean IP %s (Psiphon Fronting)", cleanIP),
+		"message": msg,
 	})
 }
 
@@ -1365,6 +1439,8 @@ func (s *Server) handleCleanIPSave(w http.ResponseWriter, r *http.Request) {
 		Name    string `json:"name"`
 		CDN     string `json:"cdn"`
 		SNI     string `json:"sni"`
+		Region  string `json:"region"`
+		Direct  bool   `json:"direct"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -1372,31 +1448,49 @@ func (s *Server) handleCleanIPSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cleanIP := strings.TrimSpace(req.IP)
-	if cleanIP == "" {
-		writeErr(w, http.StatusBadRequest, "ip address is required")
-		return
+	isDirect := req.Direct || cleanIP == "direct" || cleanIP == "psiphon-direct"
+
+	var cleanNode *models.Config
+	var err error
+
+	if isDirect {
+		cleanNode, err = cleanip.CreateOrUpdateDirectPsiphonNodeWithName(s.db, req.Region, req.Name)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("failed saving direct psiphon config: %v", err))
+			return
+		}
+	} else {
+		if cleanIP == "" {
+			writeErr(w, http.StatusBadRequest, "ip address is required")
+			return
+		}
+
+		latency := req.Latency
+		if latency <= 0 {
+			latency = 120
+		}
+
+		cleanNode, err = cleanip.CreateOrUpdateCleanIPNodeWithRegion(s.db, cleanIP, latency, req.Name, req.Region)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("failed saving clean ip config: %v", err))
+			return
+		}
+
+		if req.SNI != "" {
+			cleanNode.SNI = req.SNI
+			_, _ = s.db.UpsertConfig(cleanNode)
+		}
 	}
 
-	latency := req.Latency
-	if latency <= 0 {
-		latency = 120
-	}
-
-	cleanNode, err := cleanip.CreateOrUpdateCleanIPNodeWithName(s.db, cleanIP, latency, req.Name)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("failed saving clean ip config: %v", err))
-		return
-	}
-
-	if req.SNI != "" {
-		cleanNode.SNI = req.SNI
-		_, _ = s.db.UpsertConfig(cleanNode)
+	msg := fmt.Sprintf("Clean IP node %s saved successfully", cleanNode.Server)
+	if isDirect {
+		msg = "Direct Psiphon node saved successfully"
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"node":    cleanNode,
-		"message": fmt.Sprintf("Clean IP %s added to main configs", cleanIP),
+		"message": msg,
 	})
 }
 
@@ -1407,13 +1501,15 @@ func (s *Server) handleCleanIPSaveAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		IPs []struct {
+		Region string `json:"region"`
+		IPs    []struct {
 			IP      string `json:"ip"`
 			Port    int    `json:"port"`
 			Latency int    `json:"latency"`
 			Name    string `json:"name"`
 			CDN     string `json:"cdn"`
 			SNI     string `json:"sni"`
+			Region  string `json:"region"`
 		} `json:"ips"`
 	}
 
@@ -1432,7 +1528,11 @@ func (s *Server) handleCleanIPSaveAll(w http.ResponseWriter, r *http.Request) {
 			if latency <= 0 {
 				latency = 120
 			}
-			node, err := cleanip.CreateOrUpdateCleanIPNodeWithName(s.db, ip, latency, item.Name)
+			region := item.Region
+			if region == "" {
+				region = req.Region
+			}
+			node, err := cleanip.CreateOrUpdateCleanIPNodeWithRegion(s.db, ip, latency, item.Name, region)
 			if err == nil && node != nil {
 				if item.SNI != "" {
 					node.SNI = item.SNI
@@ -1444,7 +1544,7 @@ func (s *Server) handleCleanIPSaveAll(w http.ResponseWriter, r *http.Request) {
 	} else {
 		best := s.cleanIPMgr.GetBestIPs(50)
 		for _, item := range best {
-			node, err := cleanip.CreateOrUpdateCleanIPNodeWithName(s.db, item.IP, item.Latency, "")
+			node, err := cleanip.CreateOrUpdateCleanIPNodeWithRegion(s.db, item.IP, item.Latency, "", req.Region)
 			if err == nil && node != nil {
 				savedNodes = append(savedNodes, node)
 			}

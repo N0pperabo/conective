@@ -25,15 +25,16 @@ import (
 
 // Runner manages the lifecycle of the Psiphon / Aether circumvention engine
 type Runner struct {
-	mu          sync.Mutex
-	cmd         *exec.Cmd
-	running     bool
-	cleanIP     string
-	socksPort   int
-	httpPort    int
-	connectedAt time.Time
-	lastLatency int
-	exitIP      string
+	mu           sync.Mutex
+	cmd          *exec.Cmd
+	running      bool
+	cleanIP      string
+	egressRegion string
+	socksPort    int
+	httpPort     int
+	connectedAt  time.Time
+	lastLatency  int
+	exitIP       string
 }
 
 // NewRunner creates a new Psiphon runner instance
@@ -107,8 +108,8 @@ func detectIPDefaults(ip string) (sni, cdnSet string) {
 	return "a248.e.akamai.net", "psiphon-akamai"
 }
 
-// ShiroCdnFrontingConfig generates the exact configuration matching ShirOKhorshid Android client
-func ShiroCdnFrontingConfig(cleanIP, sni string) ([]byte, error) {
+// ShiroCdnFrontingConfigWithRegion generates fronting configuration matching ShirOKhorshid with optional egress region
+func ShiroCdnFrontingConfigWithRegion(cleanIP, sni, egressRegion string) ([]byte, error) {
 	if sni == "" {
 		sni = "a248.e.akamai.net"
 	}
@@ -174,12 +175,22 @@ func ShiroCdnFrontingConfig(cleanIP, sni string) ([]byte, error) {
 		},
 	}
 
+	reg := strings.ToUpper(strings.TrimSpace(egressRegion))
+	if reg != "" && reg != "AUTO" && reg != "ANY" {
+		cfg["EgressRegion"] = reg
+	}
+
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// ShiroCdnFrontingConfig generates the exact configuration matching ShirOKhorshid Android client
+func ShiroCdnFrontingConfig(cleanIP, sni string) ([]byte, error) {
+	return ShiroCdnFrontingConfigWithRegion(cleanIP, sni, "")
 }
 
 // Start launches Aether in Psiphon-only mode with the selected Clean CDN IP
 func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
-	return r.StartWithSNI(cleanIP, "", "", socksPort, httpPort)
+	return r.StartWithRegion(cleanIP, "", "", "", socksPort, httpPort)
 }
 
 func getSafePsiphonDir() string {
@@ -207,6 +218,11 @@ func getSafePsiphonDir() string {
 
 // StartWithSNI launches Aether in Psiphon-only mode with the selected Clean CDN IP, custom SNI and CDN set
 func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort int) error {
+	return r.StartWithRegion(cleanIP, sni, cdnSet, "", socksPort, httpPort)
+}
+
+// StartWithRegion launches Aether in Psiphon-only mode with the selected Clean CDN IP, custom SNI, CDN set and egress region
+func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, socksPort, httpPort int) error {
 	r.mu.Lock()
 
 	// Stop any existing session
@@ -228,6 +244,10 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 	r.socksPort = socksPort
 	r.httpPort = httpPort
 	r.cleanIP = strings.TrimSpace(cleanIP)
+	r.egressRegion = strings.ToUpper(strings.TrimSpace(egressRegion))
+	if r.egressRegion == "AUTO" || r.egressRegion == "ANY" {
+		r.egressRegion = ""
+	}
 
 	psiphonDir := getSafePsiphonDir()
 
@@ -240,7 +260,16 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		"--log-level", "info",
 	}
 
-	if r.cleanIP != "" && r.cleanIP != "auto" {
+	if r.egressRegion != "" {
+		args = append(args, "--psiphon-region", r.egressRegion)
+	}
+
+	isDirect := r.cleanIP == "" || r.cleanIP == "auto" || r.cleanIP == "direct"
+
+	if isDirect {
+		args = append(args, "--psiphon-mode", "direct")
+	} else {
+		args = append(args, "--psiphon-mode", "cdn")
 		if sni == "" || cdnSet == "" {
 			detSNI, detSet := detectIPDefaults(r.cleanIP)
 			if sni == "" {
@@ -252,7 +281,7 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		}
 
 		// Write ShirOKhorshid-exact config JSON and feed it to Aether
-		cfgJSON, err := ShiroCdnFrontingConfig(r.cleanIP, sni)
+		cfgJSON, err := ShiroCdnFrontingConfigWithRegion(r.cleanIP, sni, r.egressRegion)
 		if err == nil {
 			configPath := filepath.Join(psiphonDir, "shiro_config.json")
 			if writeErr := os.WriteFile(configPath, cfgJSON, 0644); writeErr == nil {
@@ -277,7 +306,11 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 	cmd.Stdout = logger.Writer("psiphon", "info")
 	cmd.Stderr = logger.Writer("psiphon", "warn")
 
-	logger.Info("psiphon", "Starting engine: cleanIP=%s, sni=%s, cdnSet=%s, socks=%d, http=%d", r.cleanIP, sni, cdnSet, socksPort, httpPort)
+	if isDirect {
+		logger.Info("psiphon", "Starting direct Psiphon engine: region=%s, socks=%d, http=%d", r.egressRegion, socksPort, httpPort)
+	} else {
+		logger.Info("psiphon", "Starting engine: cleanIP=%s, sni=%s, cdnSet=%s, region=%s, socks=%d, http=%d", r.cleanIP, sni, cdnSet, r.egressRegion, socksPort, httpPort)
+	}
 	log.Printf("[Psiphon] Starting engine: %s %s", aetherBin, strings.Join(args, " "))
 	if err := cmd.Start(); err != nil {
 		r.mu.Unlock()
@@ -326,7 +359,11 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 15s", socksPort, httpPort)
 	}
 
-	logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating CDN tunnel with %s...", socksPort, httpPort, r.cleanIP)
+	if isDirect {
+		logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating direct Psiphon tunnel (region: %s)...", socksPort, httpPort, r.egressRegion)
+	} else {
+		logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating CDN tunnel with %s (region: %s)...", socksPort, httpPort, r.cleanIP, r.egressRegion)
+	}
 
 	// Step 2: Probe through Psiphon's local HTTP proxy until tunnel is active and passing traffic
 	// Meek CDN handshake takes ~10-25s to establish the encrypted OSSH tunnel
@@ -362,15 +399,25 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 		}
 
 		if attempt%3 == 0 {
-			logger.Info("psiphon", "CDN fronting handshake in progress (waiting for tunnel to establish, %ds elapsed)...", attempt)
+			if isDirect {
+				logger.Info("psiphon", "Direct Psiphon handshake in progress (waiting for tunnel to establish, %ds elapsed)...", attempt)
+			} else {
+				logger.Info("psiphon", "CDN fronting handshake in progress (waiting for tunnel to establish, %ds elapsed)...", attempt)
+			}
 		}
 		time.Sleep(1 * time.Second)
 	}
 
 	if !tunnelReady {
-		logger.Error("psiphon", "Psiphon tunnel handshake timed out after 45s (no active tunnel established)")
-		_ = r.Stop()
-		return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 45s", r.cleanIP)
+		if isDirect {
+			logger.Error("psiphon", "Psiphon direct tunnel handshake timed out after 45s (no active tunnel established)")
+			_ = r.Stop()
+			return fmt.Errorf("direct Psiphon tunnel failed to establish connection within 45s")
+		} else {
+			logger.Error("psiphon", "Psiphon tunnel handshake timed out after 45s (no active tunnel established)")
+			_ = r.Stop()
+			return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 45s", r.cleanIP)
+		}
 	}
 
 	logger.Info("psiphon", "Tunnel successfully active and verified on SOCKS5 127.0.0.1:%d and HTTP 127.0.0.1:%d", socksPort, httpPort)
@@ -417,6 +464,7 @@ func (r *Runner) stopLocked() {
 
 	r.running = false
 	r.cleanIP = ""
+	r.egressRegion = ""
 	r.lastLatency = 0
 	r.exitIP = ""
 
@@ -430,6 +478,13 @@ func (r *Runner) IsRunning() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.running
+}
+
+// GetEgressRegion returns the active egress country/region code
+func (r *Runner) GetEgressRegion() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.egressRegion
 }
 
 // VerifyTunnel performs a real outbound HTTP probe through the local SOCKS/HTTP proxy

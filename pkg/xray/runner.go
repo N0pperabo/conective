@@ -225,36 +225,68 @@ func (r *Runner) Connect(node *models.Config) error {
 			_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
 		}
 
+		cleanIP := strings.TrimSpace(node.Server)
+		if cleanIP == "direct" || cleanIP == "auto" || strings.EqualFold(node.Transport, "direct") || strings.Contains(strings.ToLower(node.Tags), "direct") {
+			cleanIP = ""
+		}
+
+		egressRegion := ""
+		if node.RawLink != "" {
+			if u, err := url.Parse(node.RawLink); err == nil {
+				if reg := u.Query().Get("region"); reg != "" {
+					egressRegion = strings.ToUpper(strings.TrimSpace(reg))
+				}
+			}
+		}
+
+		if egressRegion == "" || egressRegion == "AUTO" || egressRegion == "ANY" {
+			countryCandidate := strings.TrimSpace(strings.ToUpper(node.Country))
+			if len(countryCandidate) == 2 && countryCandidate != "CF" && countryCandidate != "IR" && countryCandidate != "UN" && countryCandidate != "WW" {
+				egressRegion = countryCandidate
+			} else {
+				egressRegion = ""
+			}
+		}
+
+		if egressRegion == "" && r.db != nil {
+			dbRegion := strings.TrimSpace(strings.ToUpper(r.db.GetSetting("psiphon_region", "")))
+			if dbRegion != "AUTO" && dbRegion != "ANY" {
+				egressRegion = dbRegion
+			}
+		}
+
 		sni := node.SNI
 		cdnSet := ""
-		if strings.Contains(strings.ToLower(node.Tags), "akamai") || strings.Contains(strings.ToLower(node.Source), "akamai") || strings.HasSuffix(sni, "akamai.net") {
-			if sni == "" {
-				sni = "a248.e.akamai.net"
+		if cleanIP != "" {
+			if strings.Contains(strings.ToLower(node.Tags), "akamai") || strings.Contains(strings.ToLower(node.Source), "akamai") || strings.HasSuffix(sni, "akamai.net") {
+				if sni == "" {
+					sni = "a248.e.akamai.net"
+				}
+				cdnSet = "psiphon-akamai"
+			} else if strings.Contains(strings.ToLower(node.Tags), "cloudfront") || strings.Contains(strings.ToLower(node.Source), "cloudfront") || strings.HasSuffix(sni, "cloudfront.net") {
+				if sni == "" {
+					sni = "d1.cloudfront.net"
+				}
+				cdnSet = "cloudfront"
+			} else if strings.Contains(strings.ToLower(node.Tags), "cloudflare") || strings.Contains(strings.ToLower(node.Source), "cloudflare") || strings.HasSuffix(sni, "cloudflare.com") {
+				if sni == "" {
+					sni = "cloudflare.com"
+				}
+				cdnSet = "cloudflare"
 			}
-			cdnSet = "psiphon-akamai"
-		} else if strings.Contains(strings.ToLower(node.Tags), "cloudfront") || strings.Contains(strings.ToLower(node.Source), "cloudfront") || strings.HasSuffix(sni, "cloudfront.net") {
-			if sni == "" {
-				sni = "d1.cloudfront.net"
+
+			if sni == "" || cdnSet == "" {
+				_, detSNI, detSet := cleanip.DetectCDN(cleanIP)
+				if sni == "" {
+					sni = detSNI
+				}
+				if cdnSet == "" {
+					cdnSet = detSet
+				}
 			}
-			cdnSet = "cloudfront"
-		} else if strings.Contains(strings.ToLower(node.Tags), "cloudflare") || strings.Contains(strings.ToLower(node.Source), "cloudflare") || strings.HasSuffix(sni, "cloudflare.com") {
-			if sni == "" {
-				sni = "cloudflare.com"
-			}
-			cdnSet = "cloudflare"
 		}
 
-		if sni == "" || cdnSet == "" {
-			_, detSNI, detSet := cleanip.DetectCDN(node.Server)
-			if sni == "" {
-				sni = detSNI
-			}
-			if cdnSet == "" {
-				cdnSet = detSet
-			}
-		}
-
-		if err := r.psiphonRunner.StartWithSNI(node.Server, sni, cdnSet, r.socksPort, r.httpPort); err != nil {
+		if err := r.psiphonRunner.StartWithRegion(cleanIP, sni, cdnSet, egressRegion, r.socksPort, r.httpPort); err != nil {
 			return fmt.Errorf("starting psiphon tunnel: %w", err)
 		}
 
@@ -359,8 +391,9 @@ func (r *Runner) Connect(node *models.Config) error {
 				"23.215.0.206", "23.215.0.203", "23.212.250.91", "23.212.250.78",
 				"23.12.147.13", "23.12.147.29", "23.73.207.8", "23.73.207.15", "92.123.102.43",
 			}
-			logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s with Psiphon CDN bypass routes...", node.Server)
-			if err := r.tunMgr.SetupAdapterWithBypass("ConectiveTUN", node.Server, psiphonBypassIPs); err != nil {
+			tunServerHost := cleanIP
+			logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s with Psiphon CDN bypass routes...", tunServerHost)
+			if err := r.tunMgr.SetupAdapterWithBypass("ConectiveTUN", tunServerHost, psiphonBypassIPs); err != nil {
 				logger.Error("tun", "Failed to setup TUN adapter: %v", err)
 				_ = instance.Close()
 				_ = r.psiphonRunner.Stop()

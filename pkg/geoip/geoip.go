@@ -18,7 +18,7 @@ type Resolver struct {
 }
 
 var (
-	countryNames = map[string]string{
+	CountryNames = map[string]string{
 		"US": "United States", "DE": "Germany", "GB": "United Kingdom", "FR": "France",
 		"NL": "Netherlands", "CA": "Canada", "SG": "Singapore", "JP": "Japan",
 		"KR": "South Korea", "TR": "Turkey", "RU": "Russia", "IR": "Iran",
@@ -31,7 +31,17 @@ var (
 		"AZ": "Azerbaijan", "UZ": "Uzbekistan", "MD": "Moldova", "BG": "Bulgaria",
 		"HU": "Hungary", "GR": "Greece", "PT": "Portugal", "ZA": "South Africa",
 	}
+	countryNames = CountryNames
 )
+
+// CountryName returns the human-readable country name for an ISO code
+func CountryName(code string) string {
+	c := strings.ToUpper(strings.TrimSpace(code))
+	if n, ok := CountryNames[c]; ok {
+		return n
+	}
+	return c
+}
 
 func New(dbPath string) (*Resolver, error) {
 	if _, err := os.Stat(dbPath); err != nil {

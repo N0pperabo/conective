@@ -233,6 +233,10 @@ function initEventListeners() {
   if (btnCancelCleanIP) btnCancelCleanIP.addEventListener('click', cancelCleanIPScan);
   const btnConnectFastestCleanIP = document.getElementById('btnConnectFastestCleanIP');
   if (btnConnectFastestCleanIP) btnConnectFastestCleanIP.addEventListener('click', connectFastestCleanIP);
+  const btnConnectDirectPsiphon = document.getElementById('btnConnectDirectPsiphon');
+  if (btnConnectDirectPsiphon) btnConnectDirectPsiphon.addEventListener('click', connectDirectPsiphon);
+  const btnTopConnectDirectPsiphon = document.getElementById('btnTopConnectDirectPsiphon');
+  if (btnTopConnectDirectPsiphon) btnTopConnectDirectPsiphon.addEventListener('click', connectDirectPsiphon);
   const btnSaveFastestCleanIP = document.getElementById('btnSaveFastestCleanIP');
   if (btnSaveFastestCleanIP) btnSaveFastestCleanIP.addEventListener('click', addFastestCleanIPToConfigs);
   const btnSaveAllCleanIP = document.getElementById('btnSaveAllCleanIP');
@@ -1917,8 +1921,9 @@ async function checkAllTrustScores() {
 function flagImg(code) {
   if (!code) return '';
   const c = code.toUpperCase();
-  if (c === 'CF' || c === 'CLOUDFLARE' || c === 'WW' || c === 'GLOBAL') return '';
-  if (code.length !== 2 || c === 'UN') return '';
+  if (c === 'CF' || c === 'CLOUDFLARE' || c === 'WW' || c === 'GLOBAL') return '☁️ ';
+  if (c === 'AUTO' || c === 'ANY') return '<span style="font-size: 15px; margin-inline-end: 4px;">🌐</span>';
+  if (code.length !== 2 || c === 'UN') return '<span style="font-size: 15px; margin-inline-end: 4px;">🌐</span>';
   return `<img class="flag-img" src="flags/${code.toLowerCase()}.svg" alt="${code}" loading="lazy" onerror="this.style.display='none'">`;
 }
 
@@ -2130,7 +2135,8 @@ async function startCleanIPScan() {
     }
 
     const targetLabels = {
-      akamai: 'Akamai (ShirOKhorshid)',
+      akamai: 'Akamai (شیر و خورشید)',
+      'akamai-eu': 'Akamai Europe (اروپا)',
       cloudfront: 'Amazon CloudFront',
       cloudflare: 'Cloudflare',
       all: 'All CDNs'
@@ -2156,9 +2162,62 @@ async function cancelCleanIPScan() {
   }
 }
 
-async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
+async function connectDirectPsiphon() {
+  const btnTop = document.getElementById('btnTopConnectDirectPsiphon');
+  const btnMain = document.getElementById('btnConnectDirectPsiphon');
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
+  const regionLabel = region ? ` (کشور: ${region})` : '';
+
+  const setButtonsLoading = (isLoading) => {
+    [btnTop, btnMain].forEach(b => {
+      if (b) {
+        b.disabled = isLoading;
+        if (isLoading) {
+          b.innerHTML = `<span class="conn-spinner" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle; margin-inline-end: 5px;"></span> در حال اتصال...`;
+        } else {
+          b.innerHTML = `⚡ اتصال مستقیم به سایفون عادی (Direct Psiphon)`;
+        }
+      }
+    });
+  };
+
+  setButtonsLoading(true);
   try {
-    showToast(`در حال اتصال به اینترنت آزاد از طریق آی‌پی تمیز ${ip}...`, 'info');
+    showToast(`در حال برقراری اتصال مستقیم به سایفون عادی${regionLabel}...`, 'info');
+    const res = await fetch('/api/tools/clean-ip/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        direct: true,
+        region: region,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'خطا در اتصال به سایفون عادی');
+    }
+
+    const data = await res.json();
+    if (data.node && data.node.id) {
+      selectedNodeId = data.node.id;
+    }
+    showToast(data.message || `با موفقیت به سایفون عادی${regionLabel} متصل شدید!`, 'success');
+    closeModal('cleanIPModal');
+    loadNodes();
+    loadStatus();
+  } catch (e) {
+    showToast('خطا در اتصال به سایفون عادی: ' + e.message, 'error');
+  } finally {
+    setButtonsLoading(false);
+  }
+}
+
+async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
+  const regionLabel = region ? ` (${region})` : '';
+  try {
+    showToast(`در حال اتصال به اینترنت آزاد از طریق آی‌پی تمیز ${ip}${regionLabel}...`, 'info');
     const res = await fetch('/api/tools/clean-ip/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2168,6 +2227,7 @@ async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
         latency: latency,
         cdn: cdn,
         sni: sni,
+        region: region,
       }),
     });
 
@@ -2177,7 +2237,10 @@ async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
     }
 
     const data = await res.json();
-    showToast(data.message || `با موفقیت به اینترنت آزاد از طریق آی‌پی تمیز ${ip} متصل شد!`, 'success');
+    if (data.node && data.node.id) {
+      selectedNodeId = data.node.id;
+    }
+    showToast(data.message || `با موفقیت به اینترنت آزاد از طریق آی‌پی تمیز ${ip}${regionLabel} متصل شد!`, 'success');
     closeModal('cleanIPModal');
     loadNodes();
     loadStatus();
@@ -2195,6 +2258,7 @@ async function connectFastestCleanIP() {
 }
 
 async function addCleanIPToConfigs(ip, latency = 0, cdn = '', sni = '') {
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
   try {
     showToast(`در حال افزودن آی‌پی تمیز ${ip} به لیست کانفیگ‌ها...`, 'info');
     const res = await fetch('/api/tools/clean-ip/save', {
@@ -2206,6 +2270,7 @@ async function addCleanIPToConfigs(ip, latency = 0, cdn = '', sni = '') {
         latency: latency,
         cdn: cdn,
         sni: sni,
+        region: region,
       }),
     });
 
@@ -2235,13 +2300,22 @@ async function addAllCleanIPsToConfigs() {
     showToast('هیچ آی‌پی تمیزی برای افزودن وجود ندارد.', 'warning');
     return;
   }
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
   try {
     showToast('در حال افزودن آی‌پی‌های تمیز به کانفیگ‌ها...', 'info');
     const res = await fetch('/api/tools/clean-ip/save-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        ips: cleanIPList.map(item => ({ ip: item.ip, port: 443, latency: item.latency, cdn: item.cdn, sni: item.sni })),
+        region: region,
+        ips: cleanIPList.map(item => ({
+          ip: item.ip,
+          port: 443,
+          latency: item.latency,
+          cdn: item.cdn,
+          sni: item.sni,
+          region: region || item.country,
+        })),
       }),
     });
 

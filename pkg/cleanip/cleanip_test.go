@@ -578,5 +578,42 @@ func TestCreateOrUpdateCleanIPNodeWithName_CDN(t *testing.T) {
 	}
 }
 
+func TestGenerateCandidateIPsForTarget_AkamaiEU(t *testing.T) {
+	candidates := GenerateCandidateIPsForTarget("akamai-eu", nil, 30)
+	if len(candidates) == 0 {
+		t.Fatalf("expected Akamai EU candidates, got 0")
+	}
+	for _, c := range candidates {
+		if c.CDN != "Akamai" {
+			t.Errorf("expected CDN Akamai, got %s", c.CDN)
+		}
+		if c.Subnet != "Akamai Europe Edge" {
+			t.Errorf("expected Subnet 'Akamai Europe Edge', got %s", c.Subnet)
+		}
+	}
+}
+
+func TestCreateOrUpdateDirectPsiphonNode(t *testing.T) {
+	node, err := CreateOrUpdateDirectPsiphonNodeWithName(nil, "DE", "Custom Direct Psiphon")
+	if err != nil {
+		t.Fatalf("failed creating direct node: %v", err)
+	}
+	if node.Server != "direct" {
+		t.Errorf("expected server direct, got %s", node.Server)
+	}
+	if node.Protocol != "psiphon" {
+		t.Errorf("expected protocol psiphon, got %s", node.Protocol)
+	}
+	if node.Country != "DE" {
+		t.Errorf("expected country DE, got %s", node.Country)
+	}
+	if node.Name != "Custom Direct Psiphon" {
+		t.Errorf("expected custom name, got %s", node.Name)
+	}
+	if !strings.Contains(node.RawLink, "region=DE") {
+		t.Errorf("expected RawLink to contain region=DE, got %s", node.RawLink)
+	}
+}
+
 
 

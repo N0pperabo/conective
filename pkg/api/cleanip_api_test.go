@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -498,6 +499,195 @@ func TestCleanIP_ProtocolAndTagQuerying(t *testing.T) {
 		}
 		if strings.Contains(body, "1.1.1.1") {
 			t.Errorf("export should not contain non-CDN IP node, got: %s", body)
+		}
+	}
+}
+
+func TestDirectPsiphonAndEgressRegionConnect(t *testing.T) {
+	s, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// 1. Direct Psiphon connect dry run with Germany (DE)
+	{
+		payload := map[string]any{
+			"direct": true,
+			"region": "DE",
+		}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/tools/clean-ip/connect?dry_run=true", bytes.NewReader(b))
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp struct {
+			Success bool           `json:"success"`
+			Node    *models.Config `json:"node"`
+			Message string         `json:"message"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal error: %v", err)
+		}
+		if !resp.Success || resp.Node == nil {
+			t.Fatalf("expected success with node")
+		}
+		if resp.Node.Protocol != "psiphon" {
+			t.Errorf("expected protocol psiphon, got %s", resp.Node.Protocol)
+		}
+		if resp.Node.Server != "direct" {
+			t.Errorf("expected server direct, got %s", resp.Node.Server)
+		}
+		if resp.Node.Country != "DE" {
+			t.Errorf("expected country DE, got %s", resp.Node.Country)
+		}
+		if resp.Node.CountryName != "Germany" {
+			t.Errorf("expected country name Germany, got %s", resp.Node.CountryName)
+		}
+	}
+
+	// 2. Clean IP with custom Egress Region (Netherlands - NL)
+	{
+		payload := map[string]any{
+			"ip":     "23.209.210.213",
+			"region": "NL",
+		}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/tools/clean-ip/connect?dry_run=true", bytes.NewReader(b))
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp struct {
+			Success bool           `json:"success"`
+			Node    *models.Config `json:"node"`
+			Message string         `json:"message"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp.Node.Country != "NL" {
+			t.Errorf("expected country NL, got %s", resp.Node.Country)
+		}
+		if resp.Node.CountryName != "Netherlands" {
+			t.Errorf("expected country name Netherlands, got %s", resp.Node.CountryName)
+		}
+		if resp.Node.Server != "23.209.210.213" {
+			t.Errorf("expected server 23.209.210.213, got %s", resp.Node.Server)
+		}
+	}
+
+	// 3. Save Direct Psiphon node with UK (GB)
+	{
+		payload := map[string]any{
+			"direct": true,
+			"region": "GB",
+		}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPost, "/api/tools/clean-ip/save", bytes.NewReader(b))
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		configs, total, err := s.db.GetConfigs(database.ConfigFilter{Protocol: "psiphon"})
+		if err != nil || total == 0 {
+			t.Fatalf("expected saved direct psiphon node in db, err=%v total=%d", err, total)
+		}
+		var directNode *models.Config
+		for i := range configs {
+			if configs[i].Server == "direct" && configs[i].Country == "GB" {
+				directNode = &configs[i]
+				break
+			}
+		}
+		if directNode == nil {
+			t.Fatalf("did not find saved direct psiphon node with server=direct and country=GB")
+		}
+
+		// 4. Test Node Ping on Direct Psiphon (Must not fail with DNS error for 'direct:443')
+		{
+			pingReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/nodes/test?id=%d", directNode.ID), nil)
+			pingW := httptest.NewRecorder()
+			s.mux.ServeHTTP(pingW, pingReq)
+
+			if pingW.Code != http.StatusOK {
+				t.Fatalf("expected 200 on testing direct psiphon node, got %d: %s", pingW.Code, pingW.Body.String())
+			}
+			var testedNode models.Config
+			if err := json.Unmarshal(pingW.Body.Bytes(), &testedNode); err != nil {
+				t.Fatalf("unmarshal error: %v", err)
+			}
+			if testedNode.Status != "working" {
+				t.Errorf("expected direct psiphon node to be marked 'working', got %q", testedNode.Status)
+			}
+			if testedNode.Latency <= 0 {
+				t.Errorf("expected positive latency, got %d", testedNode.Latency)
+			}
+		}
+
+		// 5. Save Direct Psiphon with custom name
+		{
+			customPayload := map[string]any{
+				"direct": true,
+				"region": "NL",
+				"name":   "My Custom Direct Node",
+			}
+			b, _ := json.Marshal(customPayload)
+			saveReq := httptest.NewRequest(http.MethodPost, "/api/tools/clean-ip/save", bytes.NewReader(b))
+			saveW := httptest.NewRecorder()
+			s.mux.ServeHTTP(saveW, saveReq)
+
+			if saveW.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", saveW.Code, saveW.Body.String())
+			}
+			var saveResp struct {
+				Node *models.Config `json:"node"`
+			}
+			_ = json.Unmarshal(saveW.Body.Bytes(), &saveResp)
+			if saveResp.Node.Name != "My Custom Direct Node" {
+				t.Errorf("expected custom name 'My Custom Direct Node', got %q", saveResp.Node.Name)
+			}
+		}
+
+		// 6. Test Save-All with Egress Region preserves region and doesn't default to US
+		{
+			saveAllPayload := map[string]any{
+				"region": "DE",
+				"ips": []map[string]any{
+					{"ip": "2.21.0.1", "port": 443, "latency": 80, "cdn": "Akamai", "sni": "a248.e.akamai.net"},
+					{"ip": "92.123.102.43", "port": 443, "latency": 95, "cdn": "Akamai", "sni": "a248.e.akamai.net"},
+				},
+			}
+			b, _ := json.Marshal(saveAllPayload)
+			allReq := httptest.NewRequest(http.MethodPost, "/api/tools/clean-ip/save-all", bytes.NewReader(b))
+			allW := httptest.NewRecorder()
+			s.mux.ServeHTTP(allW, allReq)
+
+			if allW.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", allW.Code, allW.Body.String())
+			}
+			var allResp struct {
+				Success bool             `json:"success"`
+				Count   int              `json:"count"`
+				Nodes   []*models.Config `json:"nodes"`
+			}
+			_ = json.Unmarshal(allW.Body.Bytes(), &allResp)
+			if allResp.Count != 2 {
+				t.Errorf("expected 2 saved nodes, got %d", allResp.Count)
+			}
+			for _, n := range allResp.Nodes {
+				if n.Country != "DE" {
+					t.Errorf("node %s expected country DE, got %s", n.Server, n.Country)
+				}
+				if !strings.Contains(n.RawLink, "region=DE") {
+					t.Errorf("node %s expected RawLink to have region=DE, got %s", n.Server, n.RawLink)
+				}
+			}
 		}
 	}
 }

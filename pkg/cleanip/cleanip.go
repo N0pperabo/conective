@@ -51,6 +51,39 @@ var AkamaiCIDRs = []string{
 	"104.64.0.0/24",    // Akamai Edge Global
 	"104.65.0.0/24",    // Akamai Edge Global
 	"104.103.0.0/24",   // Akamai Edge Global
+	// European & International Akamai Edge ranges
+	"2.21.0.0/24",      // Akamai Edge EU (Germany / UK)
+	"2.17.0.0/24",      // Akamai Edge EU (Netherlands / France)
+	"2.18.0.0/24",      // Akamai Edge EU (Italy / Spain)
+	"92.122.0.0/24",    // Akamai Edge EU
+	"95.100.0.0/24",    // Akamai Edge EU
+	"95.101.0.0/24",    // Akamai Edge EU
+	"88.221.0.0/24",    // Akamai Edge EU
+	"195.219.0.0/24",   // Akamai Edge EU
+	"184.25.0.0/24",    // Akamai Edge Global
+	"184.26.0.0/24",    // Akamai Edge Global
+	"184.51.0.0/24",    // Akamai Edge Global
+	"23.10.0.0/24",     // Akamai Edge Global
+}
+
+// European Akamai Edge ranges tested for high-speed Psiphon CDN fronting
+var AkamaiEUCIDRs = []string{
+	"2.21.0.0/24",      // Akamai Edge EU (Germany / UK)
+	"2.17.0.0/24",      // Akamai Edge EU (Netherlands / France)
+	"2.18.0.0/24",      // Akamai Edge EU (Italy / Spain)
+	"92.122.0.0/24",    // Akamai Edge EU
+	"92.123.102.0/24",  // Akamai Edge Europe (Romania / Germany)
+	"95.100.0.0/24",    // Akamai Edge EU (Germany / UK)
+	"95.101.0.0/24",    // Akamai Edge EU
+	"88.221.0.0/24",    // Akamai Edge EU
+	"195.219.0.0/24",   // Akamai Edge EU (UK)
+	"185.200.232.0/24", // Akamai Edge EU
+	"185.143.232.0/24", // Akamai Edge EU
+	"2.16.10.0/24",     // Akamai Edge EU
+	"2.22.250.0/24",    // Akamai Edge EU (France)
+	"2.19.126.0/24",    // Akamai Edge EU
+	"92.16.53.0/24",    // Akamai Edge EU
+	"92.16.19.0/24",    // Akamai Edge EU
 }
 
 // Amazon CloudFront ranges for CDN Fronting
@@ -276,8 +309,8 @@ func (m *Manager) SetGeoResolver(geo *geoip.Resolver) {
 // DetectCDN identifies the CDN provider, the required SNI, and the Psiphon CDN set name for an IP
 func DetectCDN(ip string) (cdnName, sni, cdnSet string) {
 	ip = strings.TrimSpace(ip)
-	if ip == "" {
-		return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+	if ip == "" || ip == "direct" || ip == "auto" {
+		return "Psiphon", "", ""
 	}
 
 	parsed := net.ParseIP(ip)
@@ -292,8 +325,14 @@ func DetectCDN(ip string) (cdnName, sni, cdnSet string) {
 		}
 	}
 
-	// 2. Check Akamai CIDRs
+	// 2. Check Akamai CIDRs (Global & European)
 	for _, cidr := range AkamaiCIDRs {
+		_, ipnet, err := net.ParseCIDR(cidr)
+		if err == nil && ipnet.Contains(parsed) {
+			return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
+		}
+	}
+	for _, cidr := range AkamaiEUCIDRs {
 		_, ipnet, err := net.ParseCIDR(cidr)
 		if err == nil && ipnet.Contains(parsed) {
 			return "Akamai", "a248.e.akamai.net", "psiphon-akamai"
@@ -382,8 +421,10 @@ func (m *Manager) StartScan(opts ScanOptions) error {
 		return fmt.Errorf("no valid IP candidates generated from CIDRs")
 	}
 
-	targetLabel := "Akamai / ShirOKhorshid"
+	targetLabel := "Akamai (ShirOKhorshid & Global)"
 	switch strings.ToLower(target) {
+	case "akamai-eu", "akamai_eu":
+		targetLabel = "Akamai Europe"
 	case "cloudfront":
 		targetLabel = "Amazon CloudFront"
 	case "cloudflare":
@@ -501,11 +542,17 @@ func (m *Manager) runScan(ctx context.Context, candidates []candidateInfo, opts 
 					if err == nil && lat > 0 {
 						atomic.AddInt32(&workingCount, 1)
 
-						countryCode := "US"
-						countryName := c.CDN + " Edge"
-						if c.CDN == "Cloudflare" {
+						countryCode := "ANY"
+						countryName := c.CDN + " Edge (Anycast)"
+						if strings.Contains(strings.ToUpper(c.Subnet), "EU") || strings.Contains(strings.ToUpper(c.Subnet), "EUROPE") {
+							countryCode = "DE"
+							countryName = c.CDN + " Europe Edge"
+						} else if c.CDN == "Cloudflare" {
 							countryCode = "CF"
 							countryName = "Cloudflare Anycast"
+						} else if c.CDN == "CloudFront" {
+							countryCode = "US"
+							countryName = "Amazon CloudFront"
 						}
 						m.mu.RLock()
 						geo := m.geo
@@ -624,7 +671,7 @@ func sampleCIDRs(cidrs []string, count int, seen map[string]bool, cdnName, sni, 
 			if !seen[ipStr] {
 				seen[ipStr] = true
 				label := subnetPrefix
-				if label == "" {
+				if label == "" || label == "Akamai Edge" {
 					label = getSubnetLabel(cidr)
 				}
 				candidates = append(candidates, candidateInfo{
@@ -667,6 +714,31 @@ func GenerateCandidateIPsForTarget(target string, customCIDRs []string, sampleSi
 	}
 
 	switch target {
+	case "akamai-eu", "akamai_eu":
+		// European curated IPs
+		euCurated := []string{
+			"92.123.102.43", "2.22.250.149", "185.200.232.49", "185.200.232.50",
+			"185.200.232.42", "185.200.232.41", "185.200.232.43", "185.200.232.8",
+			"2.19.126.81", "92.16.53.11", "92.122.0.1", "23.209.210.213", "23.48.23.151",
+		}
+		for _, ip := range euCurated {
+			if !seen[ip] {
+				seen[ip] = true
+				candidates = append(candidates, candidateInfo{
+					IP:     ip,
+					Subnet: "Akamai Europe Edge",
+					CDN:    "Akamai",
+					SNI:    "a248.e.akamai.net",
+					CDNSet: "psiphon-akamai",
+				})
+			}
+		}
+		rem := sampleSize - len(candidates)
+		if rem > 0 {
+			sampled := sampleCIDRs(AkamaiEUCIDRs, rem, seen, "Akamai", "a248.e.akamai.net", "psiphon-akamai", "Akamai Europe Edge", rng)
+			candidates = append(candidates, sampled...)
+		}
+
 	case "akamai":
 		// 1. Proven curated IPs from ShirOKhorshid
 		for _, ip := range ShirOKhorshidCuratedIPs {
@@ -681,7 +753,7 @@ func GenerateCandidateIPsForTarget(target string, customCIDRs []string, sampleSi
 				})
 			}
 		}
-		// 2. Sample from Akamai CIDRs
+		// 2. Sample from Akamai CIDRs (includes EU & Global)
 		rem := sampleSize - len(candidates)
 		if rem > 0 {
 			sampled := sampleCIDRs(AkamaiCIDRs, rem, seen, "Akamai", "a248.e.akamai.net", "psiphon-akamai", "Akamai Edge", rng)
@@ -955,6 +1027,18 @@ func updateRawLinkWithCleanIP(c *models.Config, cleanIP string) {
 
 func getSubnetLabel(cidr string) string {
 	switch {
+	case strings.HasPrefix(cidr, "2.21.") || strings.HasPrefix(cidr, "2.17.") || strings.HasPrefix(cidr, "2.18.") ||
+		strings.HasPrefix(cidr, "2.16.") || strings.HasPrefix(cidr, "2.22.") || strings.HasPrefix(cidr, "2.19.") ||
+		strings.HasPrefix(cidr, "92.122.") || strings.HasPrefix(cidr, "92.123.") || strings.HasPrefix(cidr, "95.100.") ||
+		strings.HasPrefix(cidr, "95.101.") || strings.HasPrefix(cidr, "88.221.") || strings.HasPrefix(cidr, "185.200.") ||
+		strings.HasPrefix(cidr, "185.143.") || strings.HasPrefix(cidr, "195.219.") || strings.HasPrefix(cidr, "92.16."):
+		return "Akamai Europe Edge"
+	case strings.HasPrefix(cidr, "184.24.") || strings.HasPrefix(cidr, "23.209.") || strings.HasPrefix(cidr, "23.213.") ||
+		strings.HasPrefix(cidr, "23.48.") || strings.HasPrefix(cidr, "23.58.") || strings.HasPrefix(cidr, "23.207.") ||
+		strings.HasPrefix(cidr, "72.246.") || strings.HasPrefix(cidr, "104.112.") || strings.HasPrefix(cidr, "184.84.") ||
+		strings.HasPrefix(cidr, "184.86.") || strings.HasPrefix(cidr, "104.64.") || strings.HasPrefix(cidr, "104.65.") ||
+		strings.HasPrefix(cidr, "104.103.") || strings.HasPrefix(cidr, "23.10.") || strings.HasPrefix(cidr, "184.25."):
+		return "Akamai Global Edge"
 	case strings.HasPrefix(cidr, "188.114."):
 		return "Europe / ME Edge"
 	case strings.HasPrefix(cidr, "104.16.") || strings.HasPrefix(cidr, "104.24."):
@@ -977,8 +1061,77 @@ func CreateOrUpdateCleanIPNode(db *database.DB, cleanIP string, latency int) (*m
 	return CreateOrUpdateCleanIPNodeWithName(db, cleanIP, latency, "")
 }
 
-// CreateOrUpdateCleanIPNodeWithName creates or updates a dedicated node using Clean IP CDN fronting (matching Se7en-Pro & Shir o Khorshid)
-func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency int, customName string) (*models.Config, error) {
+// CreateOrUpdateDirectPsiphonNodeWithName creates or updates a node for direct Psiphon connection with custom name
+func CreateOrUpdateDirectPsiphonNodeWithName(db *database.DB, egressRegion string, customName string) (*models.Config, error) {
+	egressRegion = strings.TrimSpace(strings.ToUpper(egressRegion))
+	if egressRegion == "AUTO" || egressRegion == "ANY" {
+		egressRegion = ""
+	}
+
+	countryCode := "AUTO"
+	countryName := "Best Available (Auto)"
+	nodeName := customName
+	if nodeName == "" {
+		nodeName = "⚡ Psiphon Standard (Direct)"
+		if egressRegion != "" {
+			countryCode = egressRegion
+			countryName = geoip.CountryName(egressRegion)
+			flag := geoip.Flag(egressRegion)
+			nodeName = fmt.Sprintf("⚡ Psiphon Direct | %s %s", flag, countryName)
+		}
+	} else if egressRegion != "" {
+		countryCode = egressRegion
+		countryName = geoip.CountryName(egressRegion)
+	}
+
+	identity := "psiphon-direct"
+	if egressRegion != "" {
+		identity = fmt.Sprintf("psiphon-direct-%s", strings.ToLower(egressRegion))
+	}
+
+	node := &models.Config{
+		Identity:    identity,
+		Name:        nodeName,
+		Protocol:    "psiphon",
+		Server:      "direct",
+		Port:        443,
+		SNI:         "",
+		Transport:   "direct",
+		TLS:         "none",
+		Country:     countryCode,
+		CountryName: countryName,
+		Source:      "Psiphon Direct",
+		Latency:     90,
+		Status:      "working",
+		Score:       1000,
+		IsFavorite:  false,
+		Tags:        "psiphon,direct,standard,clean-ip,vpn",
+		FirstSeen:   time.Now(),
+		LastSeen:    time.Now(),
+		LastTested:  time.Now(),
+		RawLink:     fmt.Sprintf("psiphon://direct:443?region=%s#Psiphon-Direct", egressRegion),
+	}
+
+	if db != nil {
+		if _, err := db.UpsertConfig(node); err != nil {
+			return nil, fmt.Errorf("saving direct psiphon node: %w", err)
+		}
+		stored, err := db.GetConfigByIdentity(node.Identity)
+		if err == nil && stored != nil {
+			return stored, nil
+		}
+	}
+
+	return node, nil
+}
+
+// CreateOrUpdateDirectPsiphonNode creates or updates a node for direct Psiphon connection without clean IP override
+func CreateOrUpdateDirectPsiphonNode(db *database.DB, egressRegion string) (*models.Config, error) {
+	return CreateOrUpdateDirectPsiphonNodeWithName(db, egressRegion, "")
+}
+
+// CreateOrUpdateCleanIPNodeWithRegion creates or updates a dedicated node using Clean IP CDN fronting with optional egress region
+func CreateOrUpdateCleanIPNodeWithRegion(db *database.DB, cleanIP string, latency int, customName string, egressRegion string) (*models.Config, error) {
 	cleanIP = strings.TrimSpace(cleanIP)
 	parsedIP := net.ParseIP(cleanIP)
 	if parsedIP == nil || parsedIP.To4() == nil {
@@ -991,12 +1144,12 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 		latency = 120
 	}
 
-	cdnName, sni, _ := DetectCDN(cleanIP)
-
-	nodeName := customName
-	if nodeName == "" {
-		nodeName = fmt.Sprintf("⚡ %s CDN | %s", cdnName, cleanIP)
+	egressRegion = strings.TrimSpace(strings.ToUpper(egressRegion))
+	if egressRegion == "AUTO" || egressRegion == "ANY" {
+		egressRegion = ""
 	}
+
+	cdnName, sni, _ := DetectCDN(cleanIP)
 
 	countryCode := "CF"
 	countryName := "Cloudflare Anycast"
@@ -1012,8 +1165,30 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 		}
 	}
 
+	if egressRegion != "" {
+		countryCode = egressRegion
+		countryName = geoip.CountryName(egressRegion)
+	}
+
+	nodeName := customName
+	if nodeName == "" {
+		flag := geoip.Flag(countryCode)
+		if egressRegion != "" {
+			nodeName = fmt.Sprintf("⚡ %s CDN | %s (%s %s)", cdnName, cleanIP, flag, countryName)
+		} else if countryCode != "" && countryCode != "ANY" && countryCode != "CF" && countryCode != "UN" {
+			nodeName = fmt.Sprintf("⚡ %s CDN | %s (%s %s)", cdnName, cleanIP, flag, countryName)
+		} else {
+			nodeName = fmt.Sprintf("⚡ %s CDN | %s", cdnName, cleanIP)
+		}
+	}
+
+	identity := fmt.Sprintf("cleanip-%s", cleanIP)
+	if egressRegion != "" {
+		identity = fmt.Sprintf("cleanip-%s-%s", cleanIP, strings.ToLower(egressRegion))
+	}
+
 	node := &models.Config{
-		Identity:    fmt.Sprintf("cleanip-%s", cleanIP),
+		Identity:    identity,
 		Name:        nodeName,
 		Protocol:    "psiphon",
 		Server:      cleanIP,
@@ -1032,7 +1207,7 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 		FirstSeen:   time.Now(),
 		LastSeen:    time.Now(),
 		LastTested:  time.Now(),
-		RawLink:     fmt.Sprintf("psiphon://%s:443?fronting=cdn&sni=%s#%s-CDN-%s", cleanIP, sni, cdnName, cleanIP),
+		RawLink:     fmt.Sprintf("psiphon://%s:443?fronting=cdn&sni=%s&region=%s#%s-CDN-%s", cleanIP, sni, egressRegion, cdnName, cleanIP),
 	}
 
 	if db != nil {
@@ -1046,5 +1221,10 @@ func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency 
 	}
 
 	return node, nil
+}
+
+// CreateOrUpdateCleanIPNodeWithName creates or updates a dedicated node using Clean IP CDN fronting (matching Se7en-Pro & Shir o Khorshid)
+func CreateOrUpdateCleanIPNodeWithName(db *database.DB, cleanIP string, latency int, customName string) (*models.Config, error) {
+	return CreateOrUpdateCleanIPNodeWithRegion(db, cleanIP, latency, customName, "")
 }
 
