@@ -235,6 +235,16 @@ function initEventListeners() {
   if (btnConnectFastestCleanIP) btnConnectFastestCleanIP.addEventListener('click', connectFastestCleanIP);
   const btnConnectDirectPsiphon = document.getElementById('btnConnectDirectPsiphon');
   if (btnConnectDirectPsiphon) btnConnectDirectPsiphon.addEventListener('click', connectDirectPsiphon);
+  const cleanIPEgressRegion = document.getElementById('cleanIPEgressRegion');
+  if (cleanIPEgressRegion) {
+    const savedRegion = localStorage.getItem('conective_cleanip_region');
+    if (savedRegion !== null) {
+      cleanIPEgressRegion.value = savedRegion;
+    }
+    cleanIPEgressRegion.addEventListener('change', () => {
+      localStorage.setItem('conective_cleanip_region', cleanIPEgressRegion.value);
+    });
+  }
   const btnSaveFastestCleanIP = document.getElementById('btnSaveFastestCleanIP');
   if (btnSaveFastestCleanIP) btnSaveFastestCleanIP.addEventListener('click', addFastestCleanIPToConfigs);
   const btnSaveAllCleanIP = document.getElementById('btnSaveAllCleanIP');
@@ -2164,7 +2174,8 @@ async function cancelCleanIPScan() {
 
 async function connectDirectPsiphon() {
   const btn = document.getElementById('btnConnectDirectPsiphon');
-  const origHtml = btn ? btn.innerHTML : 'اتصال با سایفون معمولی (Direct Psiphon)';
+  const origHtml = btn ? btn.innerHTML : 'اتصال با سایفون معمولی';
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
 
   if (btn) {
     btn.disabled = true;
@@ -2172,11 +2183,12 @@ async function connectDirectPsiphon() {
   }
 
   try {
-    showToast('در حال برقراری اتصال مستقیم با سایفون معمولی...', 'info');
+    const regLabel = region ? ` (${region})` : '';
+    showToast(`در حال برقراری اتصال مستقیم با سایفون معمولی${regLabel}...`, 'info');
     const res = await fetch('/api/tools/clean-ip/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ direct: true }),
+      body: JSON.stringify({ direct: true, region: region }),
     });
 
     if (!res.ok) {
@@ -2203,8 +2215,10 @@ async function connectDirectPsiphon() {
 }
 
 async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
   try {
-    showToast(`در حال اتصال به اینترنت آزاد از طریق آی‌پی تمیز ${ip}...`, 'info');
+    const regLabel = region ? ` [${region}]` : '';
+    showToast(`در حال اتصال به اینترنت آزاد از طریق آی‌پی تمیز ${ip}${regLabel}...`, 'info');
     const res = await fetch('/api/tools/clean-ip/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2214,6 +2228,7 @@ async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
         latency: latency,
         cdn: cdn,
         sni: sni,
+        region: region,
       }),
     });
 
@@ -2244,6 +2259,7 @@ async function connectFastestCleanIP() {
 }
 
 async function addCleanIPToConfigs(ip, latency = 0, cdn = '', sni = '') {
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
   try {
     showToast(`در حال افزودن آی‌پی تمیز ${ip} به لیست کانفیگ‌ها...`, 'info');
     const res = await fetch('/api/tools/clean-ip/save', {
@@ -2255,6 +2271,7 @@ async function addCleanIPToConfigs(ip, latency = 0, cdn = '', sni = '') {
         latency: latency,
         cdn: cdn,
         sni: sni,
+        region: region,
       }),
     });
 
@@ -2284,19 +2301,21 @@ async function addAllCleanIPsToConfigs() {
     showToast('هیچ آی‌پی تمیزی برای افزودن وجود ندارد.', 'warning');
     return;
   }
+  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
   try {
     showToast('در حال افزودن آی‌پی‌های تمیز به کانفیگ‌ها...', 'info');
     const res = await fetch('/api/tools/clean-ip/save-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        region: region,
         ips: cleanIPList.map(item => ({
           ip: item.ip,
           port: 443,
           latency: item.latency,
           cdn: item.cdn,
           sni: item.sni,
-          region: item.country,
+          region: region || item.country,
         })),
       }),
     });

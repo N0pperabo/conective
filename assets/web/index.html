@@ -766,13 +766,39 @@
         <!-- Scanner Configuration Controls -->
         <div class="cleanip-controls-box">
           <div class="form-row">
-            <div class="form-group" style="flex: 1.2;">
+            <div class="form-group" style="flex: 1.1;">
               <label>CDN Provider</label>
               <select id="cleanIPCDNTarget">
                 <option value="akamai" selected>Akamai (ShirOKhorshid & Global)</option>
                 <option value="cloudfront">Amazon CloudFront</option>
                 <option value="all">All CDNs</option>
                 <option value="cloudflare">Cloudflare</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1.2;">
+              <label>کشور خروجی (Exit Country)</label>
+              <select id="cleanIPEgressRegion">
+                <option value="" selected>خودکار (سریع‌ترین سرور - Auto / Best)</option>
+                <option value="DE">آلمان - Germany (DE)</option>
+                <option value="US">آمریکا - United States (US)</option>
+                <option value="GB">انگلستان - United Kingdom (GB)</option>
+                <option value="NL">هلند - Netherlands (NL)</option>
+                <option value="JP">ژاپن - Japan (JP)</option>
+                <option value="CA">کانادا - Canada (CA)</option>
+                <option value="FR">فرانسه - France (FR)</option>
+                <option value="SG">سنگاپور - Singapore (SG)</option>
+                <option value="CH">سوئیس - Switzerland (CH)</option>
+                <option value="NO">نروژ - Norway (NO)</option>
+                <option value="SE">سوئد - Sweden (SE)</option>
+                <option value="IT">ایتالیا - Italy (IT)</option>
+                <option value="ES">اسپانیا - Spain (ES)</option>
+                <option value="AU">استرالیا - Australia (AU)</option>
+                <option value="FI">فنلاند - Finland (FI)</option>
+                <option value="BE">بلژیک - Belgium (BE)</option>
+                <option value="AT">اتریش - Austria (AT)</option>
+                <option value="PL">لهستان - Poland (PL)</option>
+                <option value="IE">ایرلند - Ireland (IE)</option>
+                <option value="IN">هند - India (IN)</option>
               </select>
             </div>
             <div class="form-group" style="flex: 0.8;">
