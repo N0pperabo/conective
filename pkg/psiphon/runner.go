@@ -193,7 +193,7 @@ func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
 	return r.StartWithRegion(cleanIP, "", "", "", socksPort, httpPort)
 }
 
-func getSafePsiphonDir() string {
+func getSafePsiphonDir(egressRegion string) string {
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
 		appData = "."
@@ -201,20 +201,34 @@ func getSafePsiphonDir() string {
 	baseDir := filepath.Join(appData, "Conective", "psiphon")
 	_ = os.MkdirAll(baseDir, 0755)
 
-	lockFile := filepath.Join(baseDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb")
+	regionSub := strings.ToLower(strings.TrimSpace(egressRegion))
+	if regionSub == "" || regionSub == "auto" || regionSub == "any" || regionSub == "none" || regionSub == "default" {
+		regionSub = "auto"
+	}
+
+	targetDir := filepath.Join(baseDir, "profile_"+regionSub)
+	_ = os.MkdirAll(targetDir, 0755)
+
+	lockFile := filepath.Join(targetDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb")
 	if _, err := os.Stat(lockFile); err == nil {
 		f, openErr := os.OpenFile(lockFile, os.O_RDWR, 0600)
 		if openErr != nil {
-			// Primary database is held by another process; use an isolated instance directory
-			uniqueDir := filepath.Join(baseDir, fmt.Sprintf("session_%d", time.Now().UnixNano()%100000))
+			// Database is held by another process; use a temporary fallback instance directory
+			uniqueDir := filepath.Join(targetDir, fmt.Sprintf("session_%d", time.Now().UnixNano()%100000))
 			_ = os.MkdirAll(uniqueDir, 0755)
 			return uniqueDir
 		}
 		_ = f.Close()
 	}
-	_ = os.Remove(filepath.Join(baseDir, "psiphon.boltdb.lock"))
+
+	// Clean up any stale lock files or lingering configs
+	_ = os.Remove(filepath.Join(targetDir, "psiphon.boltdb.lock"))
+	_ = os.Remove(filepath.Join(targetDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb.lock"))
+	_ = os.Remove(filepath.Join(targetDir, "shiro_config.json"))
+	_ = os.Remove(filepath.Join(baseDir, "aether-psiphon.json"))
 	_ = os.Remove(filepath.Join(baseDir, "shiro_config.json"))
-	return baseDir
+
+	return targetDir
 }
 
 // StartWithSNI launches Aether in Psiphon-only mode with the selected Clean CDN IP, custom SNI and CDN set
@@ -239,6 +253,10 @@ func BuildArgs(psiphonBin, psiphonDir, cleanIP, sni, cdnSet, egressRegion string
 	egressRegion = strings.ToUpper(strings.TrimSpace(egressRegion))
 	if egressRegion == "AUTO" || egressRegion == "ANY" || egressRegion == "NONE" || egressRegion == "DEFAULT" {
 		egressRegion = ""
+	}
+
+	if psiphonDir == "" {
+		psiphonDir = getSafePsiphonDir(egressRegion)
 	}
 
 	args := []string{
@@ -307,7 +325,7 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 		r.egressRegion = ""
 	}
 
-	psiphonDir := getSafePsiphonDir()
+	psiphonDir := getSafePsiphonDir(r.egressRegion)
 	isDirect := r.cleanIP == "" || r.cleanIP == "auto" || r.cleanIP == "direct"
 
 	args := BuildArgs(psiphonBin, psiphonDir, r.cleanIP, sni, cdnSet, r.egressRegion, socksPort, httpPort)
