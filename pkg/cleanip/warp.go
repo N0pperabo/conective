@@ -251,7 +251,7 @@ func CreateOrUpdateWarpNodeWithName(db *database.DB, cleanIP string, port int, l
 	identity := fmt.Sprintf("cloudflare-warp-%s-%d", cleanIP, port)
 	nodeName := strings.TrimSpace(customName)
 	if nodeName == "" {
-		nodeName = fmt.Sprintf("⚡ Cloudflare WARP | %s", cleanIP)
+		nodeName = fmt.Sprintf("Cloudflare WARP | %s", cleanIP)
 	}
 
 	tags := "CDN IP,warp,clean-ip,cloudflare"

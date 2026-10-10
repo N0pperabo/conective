@@ -594,6 +594,7 @@ func TestGenerateCandidateIPsForTarget_AkamaiEU(t *testing.T) {
 }
 
 func TestCreateOrUpdateDirectPsiphonNode(t *testing.T) {
+	// 1. With custom name
 	node, err := CreateOrUpdateDirectPsiphonNodeWithName(nil, "DE", "Custom Direct Psiphon")
 	if err != nil {
 		t.Fatalf("failed creating direct node: %v", err)
@@ -612,6 +613,42 @@ func TestCreateOrUpdateDirectPsiphonNode(t *testing.T) {
 	}
 	if !strings.Contains(node.RawLink, "region=DE") {
 		t.Errorf("expected RawLink to contain region=DE, got %s", node.RawLink)
+	}
+
+	// 2. Default node with no region (standard direct)
+	nodeDefault, err := CreateOrUpdateDirectPsiphonNode(nil, "")
+	if err != nil {
+		t.Fatalf("failed creating default direct node: %v", err)
+	}
+	if nodeDefault.Server != "direct" {
+		t.Errorf("expected server direct, got %s", nodeDefault.Server)
+	}
+	if nodeDefault.Protocol != "psiphon" {
+		t.Errorf("expected protocol psiphon, got %s", nodeDefault.Protocol)
+	}
+	if nodeDefault.Country != "AUTO" {
+		t.Errorf("expected country AUTO, got %s", nodeDefault.Country)
+	}
+	if nodeDefault.Name != "Psiphon Standard (Direct)" {
+		t.Errorf("expected name 'Psiphon Standard (Direct)', got %s", nodeDefault.Name)
+	}
+
+	// 3. With region and no custom name (must not have flag emoji)
+	nodeDE, err := CreateOrUpdateDirectPsiphonNode(nil, "DE")
+	if err != nil {
+		t.Fatalf("failed creating DE direct node: %v", err)
+	}
+	if nodeDE.Name != "Psiphon Direct | Germany" {
+		t.Errorf("expected 'Psiphon Direct | Germany', got %s", nodeDE.Name)
+	}
+
+	// 4. Test emoji stripping from custom name
+	nodeEmoji, err := CreateOrUpdateDirectPsiphonNodeWithName(nil, "NL", "⚡ Psiphon Direct 🇳🇱")
+	if err != nil {
+		t.Fatalf("failed creating node with emoji: %v", err)
+	}
+	if nodeEmoji.Name != "Psiphon Direct" {
+		t.Errorf("expected 'Psiphon Direct' with emojis stripped, got %q", nodeEmoji.Name)
 	}
 }
 

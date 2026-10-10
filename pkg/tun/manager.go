@@ -493,10 +493,14 @@ func (m *Manager) SetupAdapterWithBypass(adapterName, serverHost string, extraBy
 
 	// 2. Resolve server host to IP if it's a domain name
 	var sIP string
-	if ip := net.ParseIP(serverHost); ip != nil {
+	cleanHost := strings.TrimSpace(serverHost)
+	if strings.EqualFold(cleanHost, "direct") || strings.EqualFold(cleanHost, "auto") {
+		cleanHost = ""
+	}
+	if ip := net.ParseIP(cleanHost); ip != nil {
 		sIP = ip.String()
-	} else if serverHost != "" {
-		ips, err := net.LookupIP(serverHost)
+	} else if cleanHost != "" {
+		ips, err := net.LookupIP(cleanHost)
 		if err == nil && len(ips) > 0 {
 			sIP = ips[0].String()
 		}

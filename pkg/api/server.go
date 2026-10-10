@@ -1343,7 +1343,9 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 		Region  string `json:"region"`
 		Direct  bool   `json:"direct"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
 
 	cleanIP := strings.TrimSpace(req.IP)
 	isDirect := req.Direct || cleanIP == "direct" || cleanIP == "psiphon-direct"
@@ -1401,20 +1403,28 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 		_, _ = s.db.UpsertConfig(cleanNode)
 	}
 
-	if s.db.GetSetting("system_proxy", "true") == "true" && s.proxyMgr != nil {
-		httpPort, _ := strconv.Atoi(s.db.GetSetting("http_port", "10809"))
-		_ = s.proxyMgr.Enable(httpPort)
+	// If TUN mode is active, it runs in TUN mode; if inactive, proxy mode.
+	tunActive := s.runner != nil && s.runner.GetTunMode()
+	if !tunActive {
+		if (s.db.GetSetting("system_proxy", "true") == "true" || cleanNode.Protocol == "psiphon" || cleanNode.IsCDNIP()) && s.proxyMgr != nil {
+			httpPort, _ := strconv.Atoi(s.db.GetSetting("http_port", "10809"))
+			if s.runner != nil {
+				st := s.runner.GetStatus()
+				if st.HTTPPort > 0 {
+					httpPort = st.HTTPPort
+				}
+			}
+			_ = s.proxyMgr.Enable(httpPort)
+		}
+	} else if s.proxyMgr != nil {
+		_ = s.proxyMgr.Disable()
 	}
 
 	_, _ = s.db.RecordConnectionStart(cleanNode.ID, cleanNode.Server, cleanNode.Protocol)
 
 	msg := fmt.Sprintf("Connected via Clean IP %s (Psiphon Fronting)", cleanIP)
 	if isDirect {
-		regLabel := "Auto"
-		if req.Region != "" {
-			regLabel = req.Region
-		}
-		msg = fmt.Sprintf("Connected directly to standard Psiphon (Region: %s)", regLabel)
+		msg = "Connected to Psiphon Standard"
 	} else if req.Region != "" {
 		msg = fmt.Sprintf("Connected via Clean IP %s (Psiphon Fronting, Region: %s)", cleanIP, req.Region)
 	}
@@ -1442,9 +1452,11 @@ func (s *Server) handleCleanIPSave(w http.ResponseWriter, r *http.Request) {
 		Region  string `json:"region"`
 		Direct  bool   `json:"direct"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			writeErr(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
 	}
 
 	cleanIP := strings.TrimSpace(req.IP)

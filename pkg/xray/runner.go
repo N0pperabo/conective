@@ -100,7 +100,7 @@ func NewRunner(socksPort, httpPort int, testEndpoint string) *Runner {
 		testEndpoint:  testEndpoint,
 		tunMgr:            tun.NewManager(),
 		psiphonRunner:     psiphon.NewRunner(),
-		currentTunAdapter: "ConectiveTUN",
+		currentTunAdapter: "",
 	}
 	r.tunMgr.RecoverOrphanedTUNRoutes()
 	return r
@@ -187,12 +187,18 @@ func (r *Runner) Connect(node *models.Config) error {
 			r.tunMode = r.db.GetSetting("tun_mode", "false") == "true"
 			r.gamingMode = r.db.GetSetting("gaming_mode", "false") == "true"
 		}
+		tunEnabled = r.tunMode
 		gamingMode = r.gamingMode
 
 		if r.instance != nil {
-			if r.tunMode {
+			if r.currentTunAdapter != "" || r.tunMode {
 				_ = r.tunMgr.TeardownAdapter()
-				_ = tun.ResetOrRemoveAdapter(r.currentTunAdapter)
+				adapter := r.currentTunAdapter
+				if adapter == "" {
+					adapter = "ConectiveTUN"
+				}
+				_ = tun.ResetOrRemoveAdapter(adapter)
+				r.currentTunAdapter = ""
 			}
 			_ = r.instance.Close()
 			r.instance = nil
@@ -221,7 +227,6 @@ func (r *Runner) Connect(node *models.Config) error {
 		}
 		r.socksPort = ensureAvailablePort(preferredSocks, 20808)
 		r.httpPort = ensureAvailablePort(preferredHTTP, 20809)
-		tunEnabled := r.tunMode
 		r.mu.Unlock()
 
 		if tunEnabled {
@@ -232,7 +237,7 @@ func (r *Runner) Connect(node *models.Config) error {
 		}
 
 		cleanIP := strings.TrimSpace(node.Server)
-		if cleanIP == "direct" || cleanIP == "auto" || strings.EqualFold(node.Transport, "direct") || strings.Contains(strings.ToLower(node.Tags), "direct") {
+		if strings.EqualFold(cleanIP, "direct") || strings.EqualFold(cleanIP, "auto") || strings.EqualFold(node.Transport, "direct") || strings.Contains(strings.ToLower(node.Tags), "direct") {
 			cleanIP = ""
 		}
 
@@ -378,18 +383,31 @@ func (r *Runner) Connect(node *models.Config) error {
 				return fmt.Errorf("loading psiphon tun config: %w", err)
 			}
 
-			instance, err := xcore.New(cfg)
-			if err != nil {
-				_ = r.psiphonRunner.Stop()
-				_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
-				return fmt.Errorf("creating psiphon tun instance: %w", err)
+			var instance *xcore.Instance
+			var lastErr error
+			for attempt := 0; attempt < 3; attempt++ {
+				if attempt > 0 {
+					log.Printf("[Runner] Retrying Psiphon TUN start (attempt %d)...", attempt+1)
+					_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
+					time.Sleep(500 * time.Millisecond)
+				}
+				instance, lastErr = xcore.New(cfg)
+				if lastErr != nil {
+					continue
+				}
+				if startErr := instance.Start(); startErr != nil {
+					_ = instance.Close()
+					instance = nil
+					lastErr = startErr
+					continue
+				}
+				lastErr = nil
+				break
 			}
-
-			if err := instance.Start(); err != nil {
-				_ = instance.Close()
+			if lastErr != nil {
 				_ = r.psiphonRunner.Stop()
 				_ = tun.ResetOrRemoveAdapter("ConectiveTUN")
-				return fmt.Errorf("starting psiphon tun instance: %w", err)
+				return fmt.Errorf("starting psiphon tun instance: %w", lastErr)
 			}
 
 			psiphonBypassIPs := []string{
@@ -397,9 +415,12 @@ func (r *Runner) Connect(node *models.Config) error {
 				"23.215.0.206", "23.215.0.203", "23.212.250.91", "23.212.250.78",
 				"23.12.147.13", "23.12.147.29", "23.73.207.8", "23.73.207.15", "92.123.102.43",
 			}
-			tunServerHost := cleanIP
-			logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s with Psiphon CDN bypass routes...", tunServerHost)
-			if err := r.tunMgr.SetupAdapterWithBypass("ConectiveTUN", tunServerHost, psiphonBypassIPs); err != nil {
+			serverHost := cleanIP
+			if strings.EqualFold(strings.TrimSpace(node.Server), "direct") || cleanIP == "" || strings.EqualFold(serverHost, "direct") {
+				serverHost = ""
+			}
+			logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server host '%s' with Psiphon CDN bypass routes...", serverHost)
+			if err := r.tunMgr.SetupAdapterWithBypass("ConectiveTUN", serverHost, psiphonBypassIPs); err != nil {
 				logger.Error("tun", "Failed to setup TUN adapter: %v", err)
 				_ = instance.Close()
 				_ = r.psiphonRunner.Stop()
@@ -452,8 +473,14 @@ func (r *Runner) Connect(node *models.Config) error {
 	gamingMode = r.gamingMode
 
 	if r.instance != nil {
-		if r.tunMode {
+		if r.currentTunAdapter != "" || r.tunMode {
 			_ = r.tunMgr.TeardownAdapter()
+			adapter := r.currentTunAdapter
+			if adapter == "" {
+				adapter = "ConectiveTUN"
+			}
+			_ = tun.ResetOrRemoveAdapter(adapter)
+			r.currentTunAdapter = ""
 		}
 		_ = r.instance.Close()
 		r.instance = nil
@@ -714,8 +741,12 @@ func (r *Runner) Connect(node *models.Config) error {
 
 	// If TUN mode is enabled, set up adapter IP and routing
 	if tunEnabled {
-		logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server %s...", node.Server)
-		if err := r.tunMgr.SetupAdapter(tunAdapterName, node.Server); err != nil {
+		serverHost := strings.TrimSpace(node.Server)
+		if strings.EqualFold(serverHost, "direct") || strings.EqualFold(serverHost, "auto") {
+			serverHost = ""
+		}
+		logger.Info("tun", "Configuring Wintun adapter 'ConectiveTUN' for server host '%s'...", serverHost)
+		if err := r.tunMgr.SetupAdapter(tunAdapterName, serverHost); err != nil {
 			logger.Error("tun", "Failed to setup TUN adapter: %v", err)
 			_ = instance.Close()
 			_ = tun.ResetOrRemoveAdapter(tunAdapterName)
@@ -794,12 +825,17 @@ func (r *Runner) Disconnect() (err error) {
 			err = inst.Close()
 		}()
 
-		if r.tunMode || r.currentTunAdapter != "" {
+		if r.currentTunAdapter != "" {
 			// Clean up the disconnected Wintun device so Windows doesn't retain a phantom device node
 			_ = tun.ResetOrRemoveAdapter(r.currentTunAdapter)
+			r.currentTunAdapter = ""
 		}
-	} else if r.tunMode {
+	} else if r.currentTunAdapter != "" || r.tunMode {
 		_ = r.tunMgr.TeardownAdapter()
+		if r.currentTunAdapter != "" {
+			_ = tun.ResetOrRemoveAdapter(r.currentTunAdapter)
+			r.currentTunAdapter = ""
+		}
 	}
 
 	if r.psiphonRunner != nil && r.psiphonRunner.IsRunning() {

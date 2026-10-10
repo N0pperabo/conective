@@ -96,7 +96,7 @@ func BuildCleanIPCandidates(db *database.DB, cleanIP string, latency, max int) [
 		n.Port = 443
 		n.Server = cleanIP
 		n.Identity = fmt.Sprintf("cleanip-%s-%s", cleanIP, o.Identity)
-		n.Name = fmt.Sprintf("⚡ Clean IP | %s (%s)", cleanIP, o.Name)
+		n.Name = fmt.Sprintf("Clean IP | %s (%s)", cleanIP, o.Name)
 		n.Source = "Clean IP Fronting"
 		n.Latency = latency
 		n.Status = "working"
@@ -134,7 +134,7 @@ func BuildCleanIPCandidates(db *database.DB, cleanIP string, latency, max int) [
 	for _, f := range fallbackOrigins {
 		n := &models.Config{
 			Identity:    fmt.Sprintf("cleanip-%s-edge-%s", cleanIP, f.host),
-			Name:        fmt.Sprintf("⚡ Clean IP Tunnel | %s", cleanIP),
+			Name:        fmt.Sprintf("Clean IP Tunnel | %s", cleanIP),
 			Protocol:    "vless",
 			Server:      cleanIP,
 			Port:        443,

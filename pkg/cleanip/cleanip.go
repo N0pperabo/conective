@@ -1061,28 +1061,50 @@ func CreateOrUpdateCleanIPNode(db *database.DB, cleanIP string, latency int) (*m
 	return CreateOrUpdateCleanIPNodeWithName(db, cleanIP, latency, "")
 }
 
+// stripEmojis removes emoji characters, symbols, and pictographs from a string
+func stripEmojis(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		// Regional indicator symbols (flags): 0x1F1E6 - 0x1F1FF
+		// Miscellaneous Symbols, Dingbats, Emoticons, Pictographs, Supplemental Symbols
+		if (r >= 0x1F1E6 && r <= 0x1F1FF) ||
+			(r >= 0x1F300 && r <= 0x1FAFF) ||
+			(r >= 0x2600 && r <= 0x27BF) ||
+			(r >= 0xFE00 && r <= 0xFE0F) ||
+			(r >= 0x1F600 && r <= 0x1F64F) ||
+			(r >= 0x1F680 && r <= 0x1F6FF) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
 // CreateOrUpdateDirectPsiphonNodeWithName creates or updates a node for direct Psiphon connection with custom name
 func CreateOrUpdateDirectPsiphonNodeWithName(db *database.DB, egressRegion string, customName string) (*models.Config, error) {
 	egressRegion = strings.TrimSpace(strings.ToUpper(egressRegion))
-	if egressRegion == "AUTO" || egressRegion == "ANY" {
+	if egressRegion == "AUTO" || egressRegion == "ANY" || egressRegion == "NONE" || egressRegion == "DEFAULT" {
 		egressRegion = ""
 	}
 
 	countryCode := "AUTO"
 	countryName := "Best Available (Auto)"
-	nodeName := customName
+	nodeName := strings.TrimSpace(customName)
 	if nodeName == "" {
-		nodeName = "Psiphon Standard (Direct)"
 		if egressRegion != "" {
 			countryCode = egressRegion
 			countryName = geoip.CountryName(egressRegion)
-			flag := geoip.Flag(egressRegion)
-			nodeName = fmt.Sprintf("Psiphon Direct | %s %s", flag, countryName)
+			nodeName = fmt.Sprintf("Psiphon Direct | %s", countryName)
+		} else {
+			nodeName = "Psiphon Standard (Direct)"
 		}
 	} else if egressRegion != "" {
 		countryCode = egressRegion
 		countryName = geoip.CountryName(egressRegion)
 	}
+
+	// Ensure node name is clean of any emojis
+	nodeName = stripEmojis(nodeName)
 
 	identity := "psiphon-direct"
 	if egressRegion != "" {
@@ -1170,17 +1192,17 @@ func CreateOrUpdateCleanIPNodeWithRegion(db *database.DB, cleanIP string, latenc
 		countryName = geoip.CountryName(egressRegion)
 	}
 
-	nodeName := customName
+	nodeName := strings.TrimSpace(customName)
 	if nodeName == "" {
-		flag := geoip.Flag(countryCode)
 		if egressRegion != "" {
-			nodeName = fmt.Sprintf("⚡ %s CDN | %s (%s %s)", cdnName, cleanIP, flag, countryName)
+			nodeName = fmt.Sprintf("%s CDN | %s (%s)", cdnName, cleanIP, countryName)
 		} else if countryCode != "" && countryCode != "ANY" && countryCode != "CF" && countryCode != "UN" {
-			nodeName = fmt.Sprintf("⚡ %s CDN | %s (%s %s)", cdnName, cleanIP, flag, countryName)
+			nodeName = fmt.Sprintf("%s CDN | %s (%s)", cdnName, cleanIP, countryName)
 		} else {
-			nodeName = fmt.Sprintf("⚡ %s CDN | %s", cdnName, cleanIP)
+			nodeName = fmt.Sprintf("%s CDN | %s", cdnName, cleanIP)
 		}
 	}
+	nodeName = stripEmojis(nodeName)
 
 	identity := fmt.Sprintf("cleanip-%s", cleanIP)
 	if egressRegion != "" {

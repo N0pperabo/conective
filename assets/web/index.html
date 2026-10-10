@@ -763,57 +763,16 @@
           اسکن هوشمند آی‌پی‌های تمیز شبکه‌های CDN (آکامای شیر و خورشید، آمازون کلودفرانت و کلودفلر). با فرانتینگ دامنه، ترافیک بدون افت سرعت فیلترینگ را دور می‌زند.
         </p>
 
-        <!-- Quick Action: Direct Psiphon Connection -->
-        <div class="direct-psiphon-card" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.05) 100%); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;">
-          <div style="direction: rtl; text-align: right; flex: 1; min-width: 240px;">
-            <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; color: #f59e0b;">
-              <span>اتصال مستقیم با سایفون معمولی (بدون نیاز به آی‌پی)</span>
-              <span id="directPsiphonTunBadge" class="badge badge-success" style="font-size: 11px;">TUN Mode: فعال</span>
-              <span id="directPsiphonGamingBadge" class="badge badge-secondary" style="font-size: 11px;">Gaming Mode: عادی</span>
-            </div>
-            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;">
-              بدون نیاز به اسکن یا یافتن آی‌پی تمیز؛ مستقیماً با سایفون عادی وصل شوید. وضعیت فعال بودن کارت شبکه TUN و گیمینگ مود بر اساس کلیدهای اصلی برنامه اعمال خواهد شد.
-            </div>
-          </div>
-          <div>
-            <button id="btnConnectDirectPsiphonMain" class="btn btn-warning btn-glow" style="font-weight: 600; padding: 9px 20px; white-space: nowrap;">
-              اتصال با سایفون معمولی
-            </button>
-          </div>
-        </div>
-
         <!-- Scanner Configuration Controls -->
         <div class="cleanip-controls-box">
           <div class="form-row">
-            <div class="form-group" style="flex: 1.1;">
+            <div class="form-group" style="flex: 1.2;">
               <label>CDN Provider</label>
               <select id="cleanIPCDNTarget">
                 <option value="akamai" selected>Akamai (ShirOKhorshid & Global)</option>
-                <option value="akamai-eu">🇪🇺 Akamai Europe (اروپا: آلمان، انگلیس، هلند...)</option>
                 <option value="cloudfront">Amazon CloudFront</option>
-                <option value="all">All CDNs (همه شبکه‌ها)</option>
+                <option value="all">All CDNs</option>
                 <option value="cloudflare">Cloudflare</option>
-              </select>
-            </div>
-            <div class="form-group" style="flex: 1.1;">
-              <label>کشور خروجی (Egress Region)</label>
-              <select id="cleanIPEgressRegion">
-                <option value="" selected>🌐 Auto / Best (سریع‌ترین خودکار)</option>
-                <option value="DE">🇩🇪 Germany (آلمان)</option>
-                <option value="GB">🇬🇧 United Kingdom (انگلستان)</option>
-                <option value="NL">🇳🇱 Netherlands (هلند)</option>
-                <option value="US">🇺🇸 United States (آمریکا)</option>
-                <option value="CA">🇨🇦 Canada (کانادا)</option>
-                <option value="JP">🇯🇵 Japan (ژاپن)</option>
-                <option value="SG">🇸🇬 Singapore (سنگاپور)</option>
-                <option value="FR">🇫🇷 France (فرانسه)</option>
-                <option value="TR">🇹🇷 Turkey (ترکیه)</option>
-                <option value="CH">🇨🇭 Switzerland (سوئیس)</option>
-                <option value="IT">🇮🇹 Italy (ایتالیا)</option>
-                <option value="ES">🇪🇸 Spain (اسپانیا)</option>
-                <option value="PL">🇵🇱 Poland (لهستان)</option>
-                <option value="SE">🇸🇪 Sweden (سوئد)</option>
-                <option value="AT">🇦🇹 Austria (اتریش)</option>
               </select>
             </div>
             <div class="form-group" style="flex: 0.8;">
@@ -843,11 +802,9 @@
             </div>
           </div>
 
-          <div style="display: flex; gap: 10px; margin-top: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; gap: 10px; margin-top: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap;">
             <div>
-              <button id="btnTopConnectDirectPsiphon" class="btn btn-warning btn-sm btn-glow" title="اتصال مستقیم به سایفون عادی بدون نیاز به آی‌پی تمیز">
-                اتصال با سایفون معمولی (Direct Psiphon)
-              </button>
+              <button id="btnConnectDirectPsiphon" class="btn btn-warning btn-glow" title="اتصال به سایفون عادی بدون نیاز به آی‌پی">اتصال با سایفون معمولی</button>
             </div>
             <div style="display: flex; gap: 10px;">
               <button id="btnCancelCleanIP" class="btn btn-danger btn-sm" style="display: none;">
@@ -858,11 +815,6 @@
               </button>
             </div>
           </div>
-        </div>
-
-        <!-- Explanation Info Box -->
-        <div class="cleanip-info-box" style="margin-top: 12px; padding: 10px 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.22); border-radius: 8px; font-size: 12px; line-height: 1.6; direction: rtl; text-align: right; color: var(--text-secondary);">
-          💡 <b>دلیل نمایش اولیه آمریکا و کنترل کشور خروجی:</b> سرورهای لبه CDN آکامای (Anycast) در دیتابیس‌های جهانی تحت رجیستری ARIN (آمریکا) ثبت شده‌اند؛ اما لوکیشن نهایی اینترنت شما توسط <b>کشور خروجی سایفون (Egress Region)</b> تعیین می‌شود. با انتخاب کشور دلخواه در بالا (مانند آلمان، انگلیس، هلند و...)، ترافیک دقیقاً از همان کشور خارج خواهد شد. همچنین می‌توانید در هر لحظه روی دکمه <b>اتصال مستقیم به سایفون عادی</b> کلیک کنید تا آزادانه و بدون نیاز به آی‌پی تمیز متصل شوید.
         </div>
 
         <!-- Live Scan Progress Banner -->
@@ -901,13 +853,10 @@
           </div>
         </div>
 
-        <!-- Clean IPs Results Table & Standalone Action -->
+        <!-- Clean IPs Results Table & Actions -->
         <div class="cleanip-results-header" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; flex-wrap: wrap; gap: 8px;">
           <h4 style="font-size: 14px; font-weight: 600;">Fastest Clean Edge IPs (<span id="cleanIPFoundCount">0</span> found)</h4>
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <button id="btnConnectDirectPsiphon" class="btn btn-warning btn-sm btn-glow" title="اتصال مستقیم به سایفون عادی بدون نیاز به آی‌پی تمیز">
-              اتصال با سایفون معمولی (Direct Psiphon)
-            </button>
             <button id="btnSaveFastestCleanIP" class="btn btn-secondary btn-sm" disabled title="افزودن سریع‌ترین آی‌پی به کانفیگ‌های اصلی">
               افزودن سریع‌ترین به کانفیگ‌ها
             </button>

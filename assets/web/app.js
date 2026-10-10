@@ -235,10 +235,6 @@ function initEventListeners() {
   if (btnConnectFastestCleanIP) btnConnectFastestCleanIP.addEventListener('click', connectFastestCleanIP);
   const btnConnectDirectPsiphon = document.getElementById('btnConnectDirectPsiphon');
   if (btnConnectDirectPsiphon) btnConnectDirectPsiphon.addEventListener('click', connectDirectPsiphon);
-  const btnTopConnectDirectPsiphon = document.getElementById('btnTopConnectDirectPsiphon');
-  if (btnTopConnectDirectPsiphon) btnTopConnectDirectPsiphon.addEventListener('click', connectDirectPsiphon);
-  const btnConnectDirectPsiphonMain = document.getElementById('btnConnectDirectPsiphonMain');
-  if (btnConnectDirectPsiphonMain) btnConnectDirectPsiphonMain.addEventListener('click', connectDirectPsiphon);
   const btnSaveFastestCleanIP = document.getElementById('btnSaveFastestCleanIP');
   if (btnSaveFastestCleanIP) btnSaveFastestCleanIP.addEventListener('click', addFastestCleanIPToConfigs);
   const btnSaveAllCleanIP = document.getElementById('btnSaveAllCleanIP');
@@ -597,9 +593,6 @@ function updateConnectionUI(conn) {
     badgeLanStatus.style.display = conn.share_lan ? 'inline-block' : 'none';
   }
 
-  if (typeof updateDirectPsiphonBadges === 'function') {
-    updateDirectPsiphonBadges();
-  }
 
   if (conn.connected && conn.active_node) {
     dot.className = 'status-dot connected';
@@ -1757,9 +1750,7 @@ function openModal(id, onOpen) {
   if (id === 'logsModal' && typeof checkLogAutoScroll === 'function') {
     setTimeout(checkLogAutoScroll, 50);
   }
-  if (id === 'cleanIPModal' && typeof updateDirectPsiphonBadges === 'function') {
-    updateDirectPsiphonBadges();
-  }
+
   if (onOpen) onOpen();
 }
 
@@ -2171,71 +2162,21 @@ async function cancelCleanIPScan() {
   }
 }
 
-function updateDirectPsiphonBadges() {
-  const tunBadge = document.getElementById('directPsiphonTunBadge');
-  const gamingBadge = document.getElementById('directPsiphonGamingBadge');
-  const isTun = document.getElementById('chkHeroTunMode')?.checked ?? !!activeConnection?.tun_mode;
-  const isGaming = document.getElementById('chkHeroGamingMode')?.checked ?? !!activeConnection?.gaming_mode;
-
-  if (tunBadge) {
-    if (isTun) {
-      tunBadge.textContent = 'TUN Mode: فعال';
-      tunBadge.className = 'badge badge-success';
-    } else {
-      tunBadge.textContent = 'TUN Mode: غیرفعال (پراکسی)';
-      tunBadge.className = 'badge badge-secondary';
-    }
-  }
-
-  if (gamingBadge) {
-    if (isGaming) {
-      gamingBadge.textContent = 'Gaming Mode: فعال';
-      gamingBadge.className = 'badge badge-warning';
-    } else {
-      gamingBadge.textContent = 'Gaming Mode: عادی';
-      gamingBadge.className = 'badge badge-secondary';
-    }
-  }
-}
-
 async function connectDirectPsiphon() {
-  const btnMain = document.getElementById('btnConnectDirectPsiphonMain');
-  const btnTop = document.getElementById('btnTopConnectDirectPsiphon');
-  const btnBottom = document.getElementById('btnConnectDirectPsiphon');
-  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
-  const regionLabel = region ? ` (کشور: ${region})` : '';
+  const btn = document.getElementById('btnConnectDirectPsiphon');
+  const origHtml = btn ? btn.innerHTML : 'اتصال با سایفون معمولی (Direct Psiphon)';
 
-  const isTun = document.getElementById('chkHeroTunMode')?.checked ?? !!activeConnection?.tun_mode;
-  const isGaming = document.getElementById('chkHeroGamingMode')?.checked ?? !!activeConnection?.gaming_mode;
-  const modeInfo = ` [${isTun ? 'TUN' : 'Proxy'}${isGaming ? ' + Gaming' : ''}]`;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="conn-spinner" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle; margin-inline-end: 5px;"></span> در حال اتصال...`;
+  }
 
-  const setButtonsLoading = (isLoading) => {
-    [btnMain, btnTop, btnBottom].forEach(b => {
-      if (b) {
-        b.disabled = isLoading;
-        if (isLoading) {
-          b.innerHTML = `<span class="conn-spinner" style="width: 13px; height: 13px; display: inline-block; vertical-align: middle; margin-inline-end: 5px;"></span> در حال اتصال...`;
-        } else {
-          if (b === btnMain) {
-            b.innerHTML = `اتصال با سایفون معمولی`;
-          } else {
-            b.innerHTML = `اتصال با سایفون معمولی (Direct Psiphon)`;
-          }
-        }
-      }
-    });
-  };
-
-  setButtonsLoading(true);
   try {
-    showToast(`در حال برقراری اتصال مستقیم با سایفون معمولی${regionLabel}${modeInfo}...`, 'info');
+    showToast('در حال برقراری اتصال مستقیم با سایفون معمولی...', 'info');
     const res = await fetch('/api/tools/clean-ip/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        direct: true,
-        region: region,
-      }),
+      body: JSON.stringify({ direct: true }),
     });
 
     if (!res.ok) {
@@ -2247,22 +2188,23 @@ async function connectDirectPsiphon() {
     if (data.node && data.node.id) {
       selectedNodeId = data.node.id;
     }
-    showToast(data.message || `با موفقیت به سایفون معمولی${regionLabel} متصل شدید!`, 'success');
+    showToast(data.message || 'با موفقیت به سایفون معمولی متصل شدید!', 'success');
     closeModal('cleanIPModal');
     loadNodes();
     loadStatus();
   } catch (e) {
     showToast('خطا در اتصال به سایفون معمولی: ' + e.message, 'error');
   } finally {
-    setButtonsLoading(false);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
   }
 }
 
 async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
-  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
-  const regionLabel = region ? ` (${region})` : '';
   try {
-    showToast(`در حال اتصال به اینترنت آزاد از طریق آی‌پی تمیز ${ip}${regionLabel}...`, 'info');
+    showToast(`در حال اتصال به اینترنت آزاد از طریق آی‌پی تمیز ${ip}...`, 'info');
     const res = await fetch('/api/tools/clean-ip/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2272,7 +2214,6 @@ async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
         latency: latency,
         cdn: cdn,
         sni: sni,
-        region: region,
       }),
     });
 
@@ -2285,7 +2226,7 @@ async function connectCleanIP(ip, latency = 0, cdn = '', sni = '') {
     if (data.node && data.node.id) {
       selectedNodeId = data.node.id;
     }
-    showToast(data.message || `با موفقیت به اینترنت آزاد از طریق آی‌پی تمیز ${ip}${regionLabel} متصل شد!`, 'success');
+    showToast(data.message || `با موفقیت به اینترنت آزاد از طریق آی‌پی تمیز ${ip} متصل شد!`, 'success');
     closeModal('cleanIPModal');
     loadNodes();
     loadStatus();
@@ -2303,7 +2244,6 @@ async function connectFastestCleanIP() {
 }
 
 async function addCleanIPToConfigs(ip, latency = 0, cdn = '', sni = '') {
-  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
   try {
     showToast(`در حال افزودن آی‌پی تمیز ${ip} به لیست کانفیگ‌ها...`, 'info');
     const res = await fetch('/api/tools/clean-ip/save', {
@@ -2315,7 +2255,6 @@ async function addCleanIPToConfigs(ip, latency = 0, cdn = '', sni = '') {
         latency: latency,
         cdn: cdn,
         sni: sni,
-        region: region,
       }),
     });
 
@@ -2345,21 +2284,19 @@ async function addAllCleanIPsToConfigs() {
     showToast('هیچ آی‌پی تمیزی برای افزودن وجود ندارد.', 'warning');
     return;
   }
-  const region = document.getElementById('cleanIPEgressRegion')?.value || '';
   try {
     showToast('در حال افزودن آی‌پی‌های تمیز به کانفیگ‌ها...', 'info');
     const res = await fetch('/api/tools/clean-ip/save-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        region: region,
         ips: cleanIPList.map(item => ({
           ip: item.ip,
           port: 443,
           latency: item.latency,
           cdn: item.cdn,
           sni: item.sni,
-          region: region || item.country,
+          region: item.country,
         })),
       }),
     });

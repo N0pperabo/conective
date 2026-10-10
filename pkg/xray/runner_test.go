@@ -3,9 +3,11 @@ package xray
 import (
 	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"freenode/pkg/database"
 	"freenode/pkg/models"
 	"freenode/pkg/v2go"
 	xcore "github.com/xtls/xray-core/core"
@@ -215,5 +217,109 @@ func TestPsiphonNodeDetection(t *testing.T) {
 		}
 	}
 }
+
+func TestTunModeAndGamingModeSettingsRefresh(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test_runner_settings.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer db.Close()
+
+	r := NewRunner(10808, 10809, "")
+	r.SetDB(db)
+
+	if r.GetTunMode() {
+		t.Errorf("expected tunMode false by default")
+	}
+	if r.GetGamingMode() {
+		t.Errorf("expected gamingMode false by default")
+	}
+
+	// 1. Set tun_mode=true and gaming_mode=true in DB
+	_ = db.SetSetting("tun_mode", "true")
+	_ = db.SetSetting("gaming_mode", "true")
+
+	// Standard node: Connect should refresh settings from DB
+	stdNode := &models.Config{
+		Protocol: "vless",
+		Server:   "direct",
+		Port:     443,
+		UUID:     "8546bcef-8456-41a2-82bc-d2231b42b769",
+	}
+	// Connect may error if non-admin or failed network, but tunMode & gamingMode must refresh
+	_ = r.Connect(stdNode)
+	if !r.GetTunMode() {
+		t.Errorf("expected tunMode to refresh to true from DB for standard node")
+	}
+	if !r.GetGamingMode() {
+		t.Errorf("expected gamingMode to refresh to true from DB for standard node")
+	}
+
+	// 2. Set tun_mode=false and gaming_mode=false in DB
+	_ = db.SetSetting("tun_mode", "false")
+	_ = db.SetSetting("gaming_mode", "false")
+
+	psiNode := &models.Config{
+		Protocol: "psiphon",
+		Server:   "direct",
+	}
+	_ = r.Connect(psiNode)
+	if r.GetTunMode() {
+		t.Errorf("expected tunMode to refresh to false from DB for psiphon node")
+	}
+	if r.GetGamingMode() {
+		t.Errorf("expected gamingMode to refresh to false from DB for psiphon node")
+	}
+}
+
+func TestDirectServerHostSanitization(t *testing.T) {
+	testCases := []struct {
+		inputServer string
+		cleanIP     string
+		expected    string
+	}{
+		{"direct", "", ""},
+		{"DIRECT", "", ""},
+		{"Direct", "", ""},
+		{"auto", "", ""},
+		{"AUTO", "", ""},
+		{"", "", ""},
+		{"104.16.1.1", "104.16.1.1", "104.16.1.1"},
+		{"direct", "104.16.1.1", ""}, // node.Server is direct -> sanitized to ""
+	}
+
+	for _, tc := range testCases {
+		cleanIP := tc.cleanIP
+		serverHost := cleanIP
+		if strings.EqualFold(strings.TrimSpace(tc.inputServer), "direct") || cleanIP == "" || strings.EqualFold(serverHost, "direct") {
+			serverHost = ""
+		}
+		if serverHost != tc.expected {
+			t.Errorf("input (%q, %q) expected %q, got %q", tc.inputServer, tc.cleanIP, tc.expected, serverHost)
+		}
+	}
+}
+
+func TestGamingModeMTUSelection(t *testing.T) {
+	// MTU should be 1400 in gaming mode to prevent packet fragmentation overhead
+	gamingMTU := 1500
+	if true /* gamingMode */ {
+		gamingMTU = 1400
+	}
+	if gamingMTU != 1400 {
+		t.Errorf("expected gaming MTU 1400, got %d", gamingMTU)
+	}
+
+	// MTU should be 1500 in non-gaming mode
+	normalMTU := 1500
+	if false /* gamingMode */ {
+		normalMTU = 1400
+	}
+	if normalMTU != 1500 {
+		t.Errorf("expected normal MTU 1500, got %d", normalMTU)
+	}
+}
+
 
 

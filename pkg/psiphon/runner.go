@@ -221,6 +221,73 @@ func (r *Runner) StartWithSNI(cleanIP, sni, cdnSet string, socksPort, httpPort i
 	return r.StartWithRegion(cleanIP, sni, cdnSet, "", socksPort, httpPort)
 }
 
+// BuildArgs constructs the command line arguments for launching Aether in Psiphon mode.
+// For direct connections (cleanIP empty, "auto", or "direct"), --psiphon-mode direct is NOT passed,
+// leaving Aether to run in Auto shape using its built-in tactics.
+// For CDN fronting connections, --psiphon-mode cdn is passed along with fronting configurations.
+// If egressRegion is empty, "AUTO", or "ANY", --psiphon-region is omitted to leave egress open to any available server.
+func BuildArgs(psiphonBin, psiphonDir, cleanIP, sni, cdnSet, egressRegion string, socksPort, httpPort int) []string {
+	if socksPort <= 0 {
+		socksPort = 10808
+	}
+	if httpPort <= 0 {
+		httpPort = 10809
+	}
+
+	cleanIP = strings.TrimSpace(cleanIP)
+	egressRegion = strings.ToUpper(strings.TrimSpace(egressRegion))
+	if egressRegion == "AUTO" || egressRegion == "ANY" || egressRegion == "NONE" || egressRegion == "DEFAULT" {
+		egressRegion = ""
+	}
+
+	args := []string{
+		"--psiphon-only",
+		"--psiphon-bin", psiphonBin,
+		"--bind", fmt.Sprintf("127.0.0.1:%d", socksPort),
+		"--psiphon-http", fmt.Sprintf("127.0.0.1:%d", httpPort),
+		"--psiphon-dir", psiphonDir,
+		"--log-level", "info",
+	}
+
+	if egressRegion != "" {
+		args = append(args, "--psiphon-region", egressRegion)
+	}
+
+	isDirect := cleanIP == "" || cleanIP == "auto" || cleanIP == "direct"
+
+	if !isDirect {
+		args = append(args, "--psiphon-mode", "cdn")
+		if sni == "" || cdnSet == "" {
+			detSNI, detSet := detectIPDefaults(cleanIP)
+			if sni == "" {
+				sni = detSNI
+			}
+			if cdnSet == "" {
+				cdnSet = detSet
+			}
+		}
+
+		// Write ShirOKhorshid-exact config JSON and feed it to Aether
+		cfgJSON, err := ShiroCdnFrontingConfigWithRegion(cleanIP, sni, egressRegion)
+		if err == nil && psiphonDir != "" {
+			configPath := filepath.Join(psiphonDir, "shiro_config.json")
+			if writeErr := os.WriteFile(configPath, cfgJSON, 0644); writeErr == nil {
+				args = append(args, "--psiphon-config", configPath)
+			}
+		}
+
+		args = append(args, "--psiphon-cdn-ips", cleanIP)
+		if sni != "" {
+			args = append(args, "--psiphon-cdn-sni", sni)
+		}
+		if cdnSet != "" {
+			args = append(args, "--psiphon-cdn-sets", cdnSet)
+		}
+	}
+
+	return args
+}
+
 // StartWithRegion launches Aether in Psiphon-only mode with the selected Clean CDN IP, custom SNI, CDN set and egress region
 func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, socksPort, httpPort int) error {
 	r.mu.Lock()
@@ -245,58 +312,14 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 	r.httpPort = httpPort
 	r.cleanIP = strings.TrimSpace(cleanIP)
 	r.egressRegion = strings.ToUpper(strings.TrimSpace(egressRegion))
-	if r.egressRegion == "AUTO" || r.egressRegion == "ANY" {
+	if r.egressRegion == "AUTO" || r.egressRegion == "ANY" || r.egressRegion == "NONE" || r.egressRegion == "DEFAULT" {
 		r.egressRegion = ""
 	}
 
 	psiphonDir := getSafePsiphonDir()
-
-	args := []string{
-		"--psiphon-only",
-		"--psiphon-bin", psiphonBin,
-		"--bind", fmt.Sprintf("127.0.0.1:%d", socksPort),
-		"--psiphon-http", fmt.Sprintf("127.0.0.1:%d", httpPort),
-		"--psiphon-dir", psiphonDir,
-		"--log-level", "info",
-	}
-
-	if r.egressRegion != "" {
-		args = append(args, "--psiphon-region", r.egressRegion)
-	}
-
 	isDirect := r.cleanIP == "" || r.cleanIP == "auto" || r.cleanIP == "direct"
 
-	if isDirect {
-		args = append(args, "--psiphon-mode", "direct")
-	} else {
-		args = append(args, "--psiphon-mode", "cdn")
-		if sni == "" || cdnSet == "" {
-			detSNI, detSet := detectIPDefaults(r.cleanIP)
-			if sni == "" {
-				sni = detSNI
-			}
-			if cdnSet == "" {
-				cdnSet = detSet
-			}
-		}
-
-		// Write ShirOKhorshid-exact config JSON and feed it to Aether
-		cfgJSON, err := ShiroCdnFrontingConfigWithRegion(r.cleanIP, sni, r.egressRegion)
-		if err == nil {
-			configPath := filepath.Join(psiphonDir, "shiro_config.json")
-			if writeErr := os.WriteFile(configPath, cfgJSON, 0644); writeErr == nil {
-				args = append(args, "--psiphon-config", configPath)
-			}
-		}
-
-		args = append(args, "--psiphon-cdn-ips", r.cleanIP)
-		if sni != "" {
-			args = append(args, "--psiphon-cdn-sni", sni)
-		}
-		if cdnSet != "" {
-			args = append(args, "--psiphon-cdn-sets", cdnSet)
-		}
-	}
+	args := BuildArgs(psiphonBin, psiphonDir, r.cleanIP, sni, cdnSet, r.egressRegion, socksPort, httpPort)
 
 	cmd := exec.Command(aetherBin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -307,9 +330,17 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 	cmd.Stderr = logger.Writer("psiphon", "warn")
 
 	if isDirect {
-		logger.Info("psiphon", "Starting direct Psiphon engine: region=%s, socks=%d, http=%d", r.egressRegion, socksPort, httpPort)
+		regLog := r.egressRegion
+		if regLog == "" {
+			regLog = "auto (any available)"
+		}
+		logger.Info("psiphon", "Starting direct Psiphon engine: region=%s, socks=%d, http=%d", regLog, socksPort, httpPort)
 	} else {
-		logger.Info("psiphon", "Starting engine: cleanIP=%s, sni=%s, cdnSet=%s, region=%s, socks=%d, http=%d", r.cleanIP, sni, cdnSet, r.egressRegion, socksPort, httpPort)
+		regLog := r.egressRegion
+		if regLog == "" {
+			regLog = "auto (any available)"
+		}
+		logger.Info("psiphon", "Starting engine: cleanIP=%s, sni=%s, cdnSet=%s, region=%s, socks=%d, http=%d", r.cleanIP, sni, cdnSet, regLog, socksPort, httpPort)
 	}
 	log.Printf("[Psiphon] Starting engine: %s %s", aetherBin, strings.Join(args, " "))
 	if err := cmd.Start(); err != nil {
@@ -359,10 +390,14 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 		return fmt.Errorf("psiphon tunnel failed to bind ports %d/%d within 15s", socksPort, httpPort)
 	}
 
+	regLog := r.egressRegion
+	if regLog == "" {
+		regLog = "auto"
+	}
 	if isDirect {
-		logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating direct Psiphon tunnel (region: %s)...", socksPort, httpPort, r.egressRegion)
+		logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating direct Psiphon tunnel (region: %s)...", socksPort, httpPort, regLog)
 	} else {
-		logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating CDN tunnel with %s (region: %s)...", socksPort, httpPort, r.cleanIP, r.egressRegion)
+		logger.Info("psiphon", "Local proxy ports bound (SOCKS5:%d, HTTP:%d). Negotiating CDN tunnel with %s (region: %s)...", socksPort, httpPort, r.cleanIP, regLog)
 	}
 
 	// Step 2: Probe through Psiphon's local HTTP proxy until tunnel is active and passing traffic
