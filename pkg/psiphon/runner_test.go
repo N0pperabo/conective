@@ -139,14 +139,13 @@ func TestBuildArgs_RegionHandling(t *testing.T) {
 }
 
 func TestBuildArgs_CdnMode(t *testing.T) {
-	// CDN fronting mode with valid clean IP: MUST contain --psiphon-mode cdn and --psiphon-cdn-ips
+	// CDN fronting mode with valid clean IP: MUST contain --psiphon-cdn-ips and --psiphon-region DE
 	argsCDN := BuildArgs("psiphon.exe", "", "23.209.210.213", "a248.e.akamai.net", "psiphon-akamai", "DE", 10808, 10809)
-	hasCdnMode := false
 	hasCdnIPs := false
 	hasRegion := false
 	for i, a := range argsCDN {
-		if a == "--psiphon-mode" && i+1 < len(argsCDN) && argsCDN[i+1] == "cdn" {
-			hasCdnMode = true
+		if a == "--psiphon-mode" && i+1 < len(argsCDN) && argsCDN[i+1] == "direct" {
+			t.Fatalf("unexpected --psiphon-mode direct in CDN mode: %v", argsCDN)
 		}
 		if a == "--psiphon-cdn-ips" && i+1 < len(argsCDN) && argsCDN[i+1] == "23.209.210.213" {
 			hasCdnIPs = true
@@ -154,9 +153,6 @@ func TestBuildArgs_CdnMode(t *testing.T) {
 		if a == "--psiphon-region" && i+1 < len(argsCDN) && argsCDN[i+1] == "DE" {
 			hasRegion = true
 		}
-	}
-	if !hasCdnMode {
-		t.Fatalf("expected --psiphon-mode cdn in args, but got: %v", argsCDN)
 	}
 	if !hasCdnIPs {
 		t.Fatalf("expected --psiphon-cdn-ips 23.209.210.213 in args, but got: %v", argsCDN)

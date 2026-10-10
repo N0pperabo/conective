@@ -213,6 +213,7 @@ func getSafePsiphonDir() string {
 		_ = f.Close()
 	}
 	_ = os.Remove(filepath.Join(baseDir, "psiphon.boltdb.lock"))
+	_ = os.Remove(filepath.Join(baseDir, "shiro_config.json"))
 	return baseDir
 }
 
@@ -256,7 +257,6 @@ func BuildArgs(psiphonBin, psiphonDir, cleanIP, sni, cdnSet, egressRegion string
 	isDirect := cleanIP == "" || cleanIP == "auto" || cleanIP == "direct"
 
 	if !isDirect {
-		args = append(args, "--psiphon-mode", "cdn")
 		if sni == "" || cdnSet == "" {
 			detSNI, detSet := detectIPDefaults(cleanIP)
 			if sni == "" {
@@ -264,15 +264,6 @@ func BuildArgs(psiphonBin, psiphonDir, cleanIP, sni, cdnSet, egressRegion string
 			}
 			if cdnSet == "" {
 				cdnSet = detSet
-			}
-		}
-
-		// Write ShirOKhorshid-exact config JSON and feed it to Aether
-		cfgJSON, err := ShiroCdnFrontingConfigWithRegion(cleanIP, sni, egressRegion)
-		if err == nil && psiphonDir != "" {
-			configPath := filepath.Join(psiphonDir, "shiro_config.json")
-			if writeErr := os.WriteFile(configPath, cfgJSON, 0644); writeErr == nil {
-				args = append(args, "--psiphon-config", configPath)
 			}
 		}
 
