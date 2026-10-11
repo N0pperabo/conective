@@ -161,6 +161,10 @@ func main() {
 	proxyMgr.RecoverOrphanedProxy(httpPort)
 	tun.NewManager().RecoverOrphanedTUNRoutes()
 
+	// Clean up any orphaned engine processes from prior crashed runs
+	_ = silentCmd("taskkill", "/F", "/IM", "aether.exe").Run()
+	_ = silentCmd("taskkill", "/F", "/IM", "psiphon-tunnel-core.exe").Run()
+
 	// Ensure wintun.dll is present next to executable and current directory for TUN mode
 	if exePath, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exePath)
@@ -268,6 +272,10 @@ func main() {
 
 		// Ensure any stale Wintun adapters are cleaned up
 		tun.CleanupStaleWintunAdapters()
+
+		// Clean up any remaining engine processes
+		_ = silentCmd("taskkill", "/F", "/IM", "aether.exe").Run()
+		_ = silentCmd("taskkill", "/F", "/IM", "psiphon-tunnel-core.exe").Run()
 
 		_ = httpServer.Close()
 		log.Printf("[Shutdown] Conective stopped cleanly.")

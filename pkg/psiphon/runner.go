@@ -193,6 +193,31 @@ func (r *Runner) Start(cleanIP string, socksPort, httpPort int) error {
 	return r.StartWithRegion(cleanIP, "", "", "", socksPort, httpPort)
 }
 
+func ensurePortsReleased(socksPort, httpPort int) {
+	if socksPort <= 0 || httpPort <= 0 {
+		return
+	}
+	deadline := time.Now().Add(2500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		sConn, sErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", socksPort), 60*time.Millisecond)
+		hConn, hErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", httpPort), 60*time.Millisecond)
+		if sConn != nil {
+			_ = sConn.Close()
+		}
+		if hConn != nil {
+			_ = hConn.Close()
+		}
+		if sErr != nil && hErr != nil {
+			// Both ports are cleanly unhooked and free
+			return
+		}
+		// Still held: force kill engine processes again and wait briefly
+		_ = silentCmd("taskkill", "/F", "/IM", "aether.exe").Run()
+		_ = silentCmd("taskkill", "/F", "/IM", "psiphon-tunnel-core.exe").Run()
+		time.Sleep(120 * time.Millisecond)
+	}
+}
+
 func getSafePsiphonDir(egressRegion string) string {
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
@@ -209,21 +234,29 @@ func getSafePsiphonDir(egressRegion string) string {
 	targetDir := filepath.Join(baseDir, "profile_"+regionSub)
 	_ = os.MkdirAll(targetDir, 0755)
 
-	lockFile := filepath.Join(targetDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb")
-	if _, err := os.Stat(lockFile); err == nil {
-		f, openErr := os.OpenFile(lockFile, os.O_RDWR, 0600)
-		if openErr != nil {
-			// Database is held by another process; use a temporary fallback instance directory
-			uniqueDir := filepath.Join(targetDir, fmt.Sprintf("session_%d", time.Now().UnixNano()%100000))
-			_ = os.MkdirAll(uniqueDir, 0755)
-			return uniqueDir
+	coreDir := filepath.Join(targetDir, "ca.psiphon.PsiphonTunnel.tunnel-core")
+	_ = os.MkdirAll(coreDir, 0755)
+
+	// Seed remote_server_list if it doesn't exist yet in targetDir
+	targetServerList := filepath.Join(coreDir, "remote_server_list")
+	if _, err := os.Stat(targetServerList); os.IsNotExist(err) {
+		candidates := []string{
+			filepath.Join(baseDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
+			filepath.Join(baseDir, "profile_auto", "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
+			filepath.Join(baseDir, "profile_us", "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
 		}
-		_ = f.Close()
+		for _, cand := range candidates {
+			if data, errRead := os.ReadFile(cand); errRead == nil && len(data) > 0 {
+				_ = os.WriteFile(targetServerList, data, 0644)
+				break
+			}
+		}
 	}
 
 	// Clean up any stale lock files or lingering configs
 	_ = os.Remove(filepath.Join(targetDir, "psiphon.boltdb.lock"))
-	_ = os.Remove(filepath.Join(targetDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb.lock"))
+	_ = os.Remove(filepath.Join(coreDir, "psiphon.boltdb.lock"))
+	_ = os.Remove(filepath.Join(coreDir, "remote_server_list.part"))
 	_ = os.Remove(filepath.Join(targetDir, "shiro_config.json"))
 	_ = os.Remove(filepath.Join(baseDir, "aether-psiphon.json"))
 	_ = os.Remove(filepath.Join(baseDir, "shiro_config.json"))
@@ -330,6 +363,8 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 
 	args := BuildArgs(psiphonBin, psiphonDir, r.cleanIP, sni, cdnSet, r.egressRegion, socksPort, httpPort)
 
+	ensurePortsReleased(socksPort, httpPort)
+
 	cmd := exec.Command(aetherBin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
@@ -422,7 +457,7 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 		Timeout: 3 * time.Second,
 	}
 
-	tunnelDeadline := time.Now().Add(45 * time.Second)
+	tunnelDeadline := time.Now().Add(55 * time.Second)
 	tunnelReady := false
 	attempt := 0
 
@@ -453,14 +488,17 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 	}
 
 	if !tunnelReady {
+		// Clean up the boltdb for this region if it timed out so bad tactic scores don't poison subsequent runs
+		_ = os.Remove(filepath.Join(psiphonDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb"))
+		_ = os.Remove(filepath.Join(psiphonDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb.lock"))
 		if isDirect {
-			logger.Error("psiphon", "Psiphon direct tunnel handshake timed out after 45s (no active tunnel established)")
+			logger.Error("psiphon", "Psiphon direct tunnel handshake timed out after 55s (no active tunnel established)")
 			_ = r.Stop()
-			return fmt.Errorf("direct Psiphon tunnel failed to establish connection within 45s")
+			return fmt.Errorf("direct Psiphon tunnel failed to establish connection within 55s")
 		} else {
-			logger.Error("psiphon", "Psiphon tunnel handshake timed out after 45s (no active tunnel established)")
+			logger.Error("psiphon", "Psiphon tunnel handshake timed out after 55s (no active tunnel established)")
 			_ = r.Stop()
-			return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 45s", r.cleanIP)
+			return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 55s", r.cleanIP)
 		}
 	}
 
@@ -487,6 +525,10 @@ func silentCmd(name string, args ...string) *exec.Cmd {
 }
 
 func (r *Runner) stopLocked() {
+	wasRunning := r.running || (r.cmd != nil && r.cmd.Process != nil)
+	socksPort := r.socksPort
+	httpPort := r.httpPort
+
 	if r.cmd != nil && r.cmd.Process != nil {
 		pid := r.cmd.Process.Pid
 		log.Printf("[Psiphon] Stopping engine (PID %d)...", pid)
@@ -497,13 +539,26 @@ func (r *Runner) stopLocked() {
 		r.cmd = nil
 	}
 
-	// Cleanup any orphan engine processes silently
-	_ = silentCmd("taskkill", "/F", "/IM", "aether.exe").Run()
-	_ = silentCmd("taskkill", "/F", "/IM", "psiphon-tunnel-core.exe").Run()
+	if wasRunning {
+		// Cleanup any orphan engine processes silently
+		_ = silentCmd("taskkill", "/F", "/IM", "aether.exe").Run()
+		_ = silentCmd("taskkill", "/F", "/IM", "psiphon-tunnel-core.exe").Run()
+
+		// Wait for sockets to be completely released so ports can be bound fresh
+		if socksPort > 0 && httpPort > 0 {
+			ensurePortsReleased(socksPort, httpPort)
+		}
+	}
 
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
-		_ = os.Remove(filepath.Join(appData, "Conective", "psiphon", "psiphon.boltdb.lock"))
+		psiphonBase := filepath.Join(appData, "Conective", "psiphon")
+		_ = filepath.Walk(psiphonBase, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() && (strings.HasSuffix(info.Name(), ".lock") || strings.HasSuffix(info.Name(), ".part")) {
+				_ = os.Remove(path)
+			}
+			return nil
+		})
 	}
 
 	r.running = false
