@@ -1403,21 +1403,19 @@ func (s *Server) handleCleanIPConnect(w http.ResponseWriter, r *http.Request) {
 		_, _ = s.db.UpsertConfig(cleanNode)
 	}
 
-	// If TUN mode is active, it runs in TUN mode; if inactive, proxy mode.
-	tunActive := s.runner != nil && s.runner.GetTunMode()
-	if !tunActive {
-		if (s.db.GetSetting("system_proxy", "true") == "true" || cleanNode.Protocol == "psiphon" || cleanNode.IsCDNIP()) && s.proxyMgr != nil {
-			httpPort, _ := strconv.Atoi(s.db.GetSetting("http_port", "10809"))
-			if s.runner != nil {
-				st := s.runner.GetStatus()
-				if st.HTTPPort > 0 {
-					httpPort = st.HTTPPort
-				}
+	// Always enable Windows system proxy if enabled in settings or for Psiphon / CDN IP nodes,
+	// even when TUN mode is active. This ensures 100% of browsers (Chrome/Edge/Firefox)
+	// immediately route through the proxy and prevents DNS/IPv6 leakage.
+	sysProxyEnabled := s.db.GetSetting("system_proxy", "true") == "true" || cleanNode.Protocol == "psiphon" || cleanNode.IsCDNIP()
+	if sysProxyEnabled && s.proxyMgr != nil {
+		httpPort, _ := strconv.Atoi(s.db.GetSetting("http_port", "10809"))
+		if s.runner != nil {
+			st := s.runner.GetStatus()
+			if st.HTTPPort > 0 {
+				httpPort = st.HTTPPort
 			}
-			_ = s.proxyMgr.Enable(httpPort)
 		}
-	} else if s.proxyMgr != nil {
-		_ = s.proxyMgr.Disable()
+		_ = s.proxyMgr.Enable(httpPort)
 	}
 
 	_, _ = s.db.RecordConnectionStart(cleanNode.ID, cleanNode.Server, cleanNode.Protocol)

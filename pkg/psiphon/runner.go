@@ -226,28 +226,72 @@ func getSafePsiphonDir(egressRegion string) string {
 	baseDir := filepath.Join(appData, "Conective", "psiphon")
 	_ = os.MkdirAll(baseDir, 0755)
 
-	regionSub := strings.ToLower(strings.TrimSpace(egressRegion))
-	if regionSub == "" || regionSub == "auto" || regionSub == "any" || regionSub == "none" || regionSub == "default" {
-		regionSub = "auto"
-	}
-
-	targetDir := filepath.Join(baseDir, "profile_"+regionSub)
+	// Use ONE unified shared data directory for Psiphon.
+	// Psiphon maintains learned tactics, tested server ratings, and connection state
+	// in its internal database (psiphon.boltdb and remote_server_list).
+	// Splitting directories per region created cold-start empty profiles that fail in Iran,
+	// whereas sharing the data directory allows all regions to instantly leverage learned tactics.
+	targetDir := filepath.Join(baseDir, "data")
 	_ = os.MkdirAll(targetDir, 0755)
 
 	coreDir := filepath.Join(targetDir, "ca.psiphon.PsiphonTunnel.tunnel-core")
 	_ = os.MkdirAll(coreDir, 0755)
+	dataStoreDir := filepath.Join(coreDir, "datastore")
+	_ = os.MkdirAll(dataStoreDir, 0755)
 
-	// Seed remote_server_list if it doesn't exist yet in targetDir
-	targetServerList := filepath.Join(coreDir, "remote_server_list")
-	if _, err := os.Stat(targetServerList); os.IsNotExist(err) {
-		candidates := []string{
-			filepath.Join(baseDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
-			filepath.Join(baseDir, "profile_auto", "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
-			filepath.Join(baseDir, "profile_us", "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
+	// Migrate / seed the best available datastore into targetDir if target datastore is missing or small
+	targetBolt := filepath.Join(dataStoreDir, "psiphon.boltdb")
+	var targetSize int64
+	if info, err := os.Stat(targetBolt); err == nil {
+		targetSize = info.Size()
+	}
+
+	boltCandidates := []string{
+		filepath.Join(baseDir, "profile_auto", "ca.psiphon.PsiphonTunnel.tunnel-core", "datastore", "psiphon.boltdb"),
+		filepath.Join(baseDir, "profile_de", "ca.psiphon.PsiphonTunnel.tunnel-core", "datastore", "psiphon.boltdb"),
+		filepath.Join(baseDir, "profile_gb", "ca.psiphon.PsiphonTunnel.tunnel-core", "datastore", "psiphon.boltdb"),
+		filepath.Join(baseDir, "profile_us", "ca.psiphon.PsiphonTunnel.tunnel-core", "datastore", "psiphon.boltdb"),
+		filepath.Join(baseDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "datastore", "psiphon.boltdb"),
+	}
+	for _, cand := range boltCandidates {
+		if cInfo, cErr := os.Stat(cand); cErr == nil && cInfo.Size() > targetSize {
+			if data, errRead := os.ReadFile(cand); errRead == nil && len(data) > 0 {
+				_ = os.WriteFile(targetBolt, data, 0644)
+				targetSize = cInfo.Size()
+				break
+			}
 		}
-		for _, cand := range candidates {
+	}
+
+	// Seed remote_server_list if it doesn't exist yet or is small in targetDir
+	targetServerList := filepath.Join(coreDir, "remote_server_list")
+	var sListSize int64
+	if sInfo, err := os.Stat(targetServerList); err == nil {
+		sListSize = sInfo.Size()
+	}
+	serverCandidates := []string{
+		filepath.Join(baseDir, "profile_auto", "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
+		filepath.Join(baseDir, "profile_us", "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
+		filepath.Join(baseDir, "profile_de", "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
+		filepath.Join(baseDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "remote_server_list"),
+	}
+	for _, cand := range serverCandidates {
+		if cInfo, cErr := os.Stat(cand); cErr == nil && cInfo.Size() > sListSize {
 			if data, errRead := os.ReadFile(cand); errRead == nil && len(data) > 0 {
 				_ = os.WriteFile(targetServerList, data, 0644)
+				sListSize = cInfo.Size()
+				break
+			}
+		}
+	}
+
+	// Seed osl (obfuscated server list) if present in profile_auto
+	targetOSL := filepath.Join(coreDir, "osl")
+	if _, err := os.Stat(targetOSL); os.IsNotExist(err) {
+		for _, candFolder := range []string{"profile_auto", "profile_us", "profile_de"} {
+			candOSL := filepath.Join(baseDir, candFolder, "ca.psiphon.PsiphonTunnel.tunnel-core", "osl")
+			if data, errRead := os.ReadFile(candOSL); errRead == nil && len(data) > 0 {
+				_ = os.WriteFile(targetOSL, data, 0644)
 				break
 			}
 		}
@@ -256,8 +300,10 @@ func getSafePsiphonDir(egressRegion string) string {
 	// Clean up any stale lock files or lingering configs
 	_ = os.Remove(filepath.Join(targetDir, "psiphon.boltdb.lock"))
 	_ = os.Remove(filepath.Join(coreDir, "psiphon.boltdb.lock"))
+	_ = os.Remove(filepath.Join(dataStoreDir, "psiphon.boltdb.lock"))
 	_ = os.Remove(filepath.Join(coreDir, "remote_server_list.part"))
 	_ = os.Remove(filepath.Join(targetDir, "shiro_config.json"))
+	_ = os.Remove(filepath.Join(targetDir, "aether-psiphon.json"))
 	_ = os.Remove(filepath.Join(baseDir, "aether-psiphon.json"))
 	_ = os.Remove(filepath.Join(baseDir, "shiro_config.json"))
 
@@ -457,7 +503,7 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 		Timeout: 3 * time.Second,
 	}
 
-	tunnelDeadline := time.Now().Add(55 * time.Second)
+	tunnelDeadline := time.Now().Add(90 * time.Second)
 	tunnelReady := false
 	attempt := 0
 
@@ -488,17 +534,14 @@ func (r *Runner) StartWithRegion(cleanIP, sni, cdnSet, egressRegion string, sock
 	}
 
 	if !tunnelReady {
-		// Clean up the boltdb for this region if it timed out so bad tactic scores don't poison subsequent runs
-		_ = os.Remove(filepath.Join(psiphonDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb"))
-		_ = os.Remove(filepath.Join(psiphonDir, "ca.psiphon.PsiphonTunnel.tunnel-core", "psiphon.boltdb.lock"))
 		if isDirect {
-			logger.Error("psiphon", "Psiphon direct tunnel handshake timed out after 55s (no active tunnel established)")
+			logger.Error("psiphon", "Psiphon direct tunnel handshake timed out after 90s (no active tunnel established)")
 			_ = r.Stop()
-			return fmt.Errorf("direct Psiphon tunnel failed to establish connection within 55s")
+			return fmt.Errorf("direct Psiphon tunnel failed to establish connection within 90s")
 		} else {
-			logger.Error("psiphon", "Psiphon tunnel handshake timed out after 55s (no active tunnel established)")
+			logger.Error("psiphon", "Psiphon tunnel handshake timed out after 90s (no active tunnel established)")
 			_ = r.Stop()
-			return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 55s", r.cleanIP)
+			return fmt.Errorf("psiphon tunnel failed to establish connection with CDN node %s within 90s", r.cleanIP)
 		}
 	}
 

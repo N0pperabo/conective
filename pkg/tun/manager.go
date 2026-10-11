@@ -521,6 +521,11 @@ func (m *Manager) SetupAdapterWithBypass(adapterName, serverHost string, extraBy
 		fmt.Sprintf("name=%s", realName), "static", "198.18.0.2", "255.255.0.0", "none")
 	_ = setIP.Run()
 
+	// Prioritize Wintun adapter metric over physical interfaces
+	setMetric := silentCmd("netsh", "interface", "ipv4", "set", "interface",
+		fmt.Sprintf("name=%s", realName), "metric=1")
+	_ = setMetric.Run()
+
 	// 5. Configure DNS servers
 	setDNS1 := silentCmd("netsh", "interface", "ipv4", "set", "dns",
 		fmt.Sprintf("name=%s", realName), "static", "1.1.1.1")
