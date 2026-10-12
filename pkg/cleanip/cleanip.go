@@ -273,7 +273,7 @@ func NewManager() *Manager {
 	return &Manager{
 		progress: Progress{
 			State:   "idle",
-			Message: "Ready to scan Cloudflare Clean IPs",
+			Message: "Ready to scan Akamai Clean IPs",
 		},
 		geo: GetDefaultGeoResolver(),
 	}

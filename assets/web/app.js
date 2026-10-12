@@ -86,8 +86,12 @@ function restorePreferences() {
     ['cleanIPCDNTarget', 'cleanIPWorkers', 'cleanIPTimeout', 'cleanIPSampleSize', 'cleanIPPort'].forEach(id => {
       const saved = localStorage.getItem(id);
       const el = document.getElementById(id);
-      if (saved !== null && el) {
-        el.value = saved;
+      if (el) {
+        if (id === 'cleanIPCDNTarget') {
+          el.value = 'akamai';
+        } else if (saved !== null) {
+          el.value = saved;
+        }
       }
     });
 
@@ -1983,7 +1987,7 @@ function updateCleanIPUI(data) {
       btnStart.innerHTML = '<span class="spinner" style="display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid #000;border-top-color:transparent;border-radius:50%;animation:conn-spin .8s linear infinite;"></span> Scanning...';
     }
     if (btnCancel) btnCancel.style.display = 'inline-block';
-    if (stateText) stateText.textContent = 'Scanning Cloudflare Clean IPs...';
+    if (stateText) stateText.textContent = 'Scanning Akamai Clean IPs...';
     if (msgText) msgText.textContent = data.message || `Testing IPs (${data.tested_ips}/${data.total_ips})...`;
 
     // Ensure polling is active
@@ -2145,11 +2149,7 @@ async function startCleanIPScan() {
     }
 
     const targetLabels = {
-      akamai: 'Akamai (شیر و خورشید)',
-      'akamai-eu': 'Akamai Europe (اروپا)',
-      cloudfront: 'Amazon CloudFront',
-      cloudflare: 'Cloudflare',
-      all: 'All CDNs'
+      akamai: 'Akamai (شیر و خورشید)'
     };
     showToast(`در حال اسکن آی‌پی‌های تمیز ${targetLabels[cdnTarget] || cdnTarget}...`, 'info');
     loadCleanIPStatus();
