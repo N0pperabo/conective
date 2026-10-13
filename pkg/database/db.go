@@ -204,8 +204,8 @@ func (d *DB) migrate() error {
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('block_domains', '')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('share_lan', 'false')")
 	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('gaming_mode', 'false')")
-	_, _ = d.db.Exec("UPDATE settings SET value = 'N0pperabo/conective' WHERE key = 'update_repo' AND (value = 'connective-app/connective' OR value = '' OR value IS NULL)")
-	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('update_repo', 'N0pperabo/conective')")
+	_, _ = d.db.Exec("UPDATE settings SET value = 'N0pperabo/conectiveVpn' WHERE key = 'update_repo' AND (value = 'connective-app/connective' OR value = 'N0pperabo/conective' OR value = '' OR value IS NULL)")
+	_, _ = d.db.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('update_repo', 'N0pperabo/conectiveVpn')")
 
 	return nil
 }

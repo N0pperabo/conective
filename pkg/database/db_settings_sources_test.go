@@ -85,10 +85,10 @@ func TestUpdateRepoMigration(t *testing.T) {
 	}
 	defer db.Close()
 
-	// Initial Open() runs migrate, seeded update_repo should be N0pperabo/conective
+	// Initial Open() runs migrate, seeded update_repo should be N0pperabo/conectiveVpn
 	repo := db.GetSetting("update_repo", "")
-	if repo != "N0pperabo/conective" {
-		t.Errorf("expected seeded update_repo to be N0pperabo/conective, got %s", repo)
+	if repo != "N0pperabo/conectiveVpn" {
+		t.Errorf("expected seeded update_repo to be N0pperabo/conectiveVpn, got %s", repo)
 	}
 
 	// Set legacy repo connective-app/connective
@@ -102,8 +102,8 @@ func TestUpdateRepoMigration(t *testing.T) {
 	}
 
 	repoAfter := db.GetSetting("update_repo", "")
-	if repoAfter != "N0pperabo/conective" {
-		t.Errorf("expected migrated update_repo to be N0pperabo/conective, got %s", repoAfter)
+	if repoAfter != "N0pperabo/conectiveVpn" {
+		t.Errorf("expected migrated update_repo to be N0pperabo/conectiveVpn, got %s", repoAfter)
 	}
 
 	// Ensure custom user fork is preserved

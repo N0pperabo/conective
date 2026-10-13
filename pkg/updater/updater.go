@@ -20,7 +20,7 @@ import (
 
 const (
 	CurrentVersion = "1.0.0"
-	DefaultRepo    = "N0pperabo/conective"
+	DefaultRepo    = "N0pperabo/conectiveVpn"
 )
 
 // ReleaseInfo holds the update check result

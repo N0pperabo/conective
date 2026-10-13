@@ -27,6 +27,11 @@
   <a href="#中文-chinese">中文</a>
 </p>
 
+> **English**: High-Performance, Multi-Engine Anti-Censorship & VPN Desktop Client for Windows with Embedded Xray-core, Psiphon, Clean IP & Wintun.  
+> **فارسی**: کلاینت ویندوز چندموتوره و پرسرعت برای عبور از فیلترینگ و دور زدن سانسور با هسته‌های Xray، سایفون، آی‌پی تمیز و تونل Wintun.  
+> **Русский**: Высокопроизводительный многомоторный клиент для обхода цензуры и VPN под Windows с интеграцией Xray-core, Psiphon, чистых IP и Wintun.  
+> **中文**: 专为 Windows 设计的高性能多引擎抗审查与 VPN 桌面客户端，集成 Xray-core、Psiphon/Aether、Akamai 优选 Clean IP 与 Wintun TUN 虚拟网卡。
+
 ---
 
 ## English
